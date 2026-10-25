@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KC-1957 左Ctrl↔Fn 完全互换改造说明 —— v8（E0F 读取点后置）</title>
+<style>
+:root{
+  --ff-body: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --ff-mono: "Cascadia Code", "Consolas", "Courier New", monospace;
+  --fs-body: 15px;
+  --fs-h1: 25px;
+  --fs-h2: 19px;
+  --fs-h3: 16px;
+  --fs-small: 13px;
+  --fs-tiny: 12px;
+  --color-text: #1f2933;
+  --color-muted: #5b6776;
+  --c-bg: #ffffff;
+  --c-card: #f5f7fa;
+  --c-card2: #eaeef3;
+  --c-accent: #2563eb;
+  --c-accent2: #b45309;
+  --c-ok: #15803d;
+  --c-bad: #b91c1c;
+  --c-line: #cbd5e1;
+  --c-code-bg: #0f172a;
+  --c-code-fg: #e2e8f0;
+  --c-code-cmt: #94a3b8;
+  --c-warn-bg: #fff7ed;
+  --c-ok-bg: #ecfdf5;
+  --c-bad-bg: #fef2f2;
+  --c-inv-bg: #2563eb;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --color-text: #e2e8f0;
+    --color-muted: #94a3b8;
+    --c-bg: #0f172a;
+    --c-card: #1e293b;
+    --c-card2: #263449;
+    --c-accent: #60a5fa;
+    --c-accent2: #fbbf24;
+    --c-ok: #4ade80;
+    --c-bad: #f87171;
+    --c-line: #334155;
+    --c-code-bg: #020617;
+    --c-code-fg: #e2e8f0;
+    --c-code-cmt: #7c8ba1;
+    --c-warn-bg: #2a1f0d;
+    --c-ok-bg: #0d2a1c;
+    --c-bad-bg: #2c1414;
+    --c-inv-bg: #1d4ed8;
+  }
+}
+* { box-sizing: border-box; }
+body{
+  font-family: var(--ff-body);
+  font-size: var(--fs-body);
+  color: var(--color-text);
+  background: var(--c-bg);
+  line-height: 1.75;
+  margin: 0;
+  padding: 34px 20px 72px 20px;
+}
+.wrap{ max-width: 940px; margin: 0 auto; }
+h1{ font-size: var(--fs-h1); border-bottom: 2px solid var(--c-accent); padding-bottom: 12px; line-height: 1.4; }
+h2{ font-size: var(--fs-h2); margin-top: 42px; color: var(--c-accent); border-bottom: 1px solid var(--c-line); padding-bottom: 6px; }
+h3{ font-size: var(--fs-h3); margin-top: 28px; color: var(--c-accent2); }
+h4{ font-size: var(--fs-body); margin-top: 20px; color: var(--color-text); }
+code, .mono{ font-family: var(--ff-mono); font-size: var(--fs-small); background: var(--c-card); padding: 1px 5px; border-radius: 3px; }
+pre{ font-family: var(--ff-mono); font-size: var(--fs-small); background: var(--c-code-bg); color: var(--c-code-fg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; line-height: 1.55; }
+pre code{ background: none; padding: 0; font-size: inherit; }
+table{ width: 100%; border-collapse: collapse; margin: 16px 0; font-size: var(--fs-small); }
+thead th{ background: var(--c-accent); color: #ffffff; text-align: left; padding: 8px 10px; font-weight: 600; }
+tbody td{ border: 1px solid var(--c-line); padding: 7px 10px; vertical-align: top; }
+tbody tr:nth-child(even){ background: var(--c-card); }
+.note{ border-left: 4px solid var(--c-accent2); background: var(--c-card); padding: 12px 16px; margin: 16px 0; }
+.note .t{ font-weight: 700; color: var(--c-accent2); }
+.warn{ border-left: 4px solid var(--c-bad); background: var(--c-warn-bg); padding: 12px 16px; margin: 16px 0; }
+.warn .t{ font-weight: 700; color: var(--c-bad); }
+.okbox{ border-left: 4px solid var(--c-ok); background: var(--c-ok-bg); padding: 12px 16px; margin: 16px 0; }
+.okbox .t{ font-weight: 700; color: var(--c-ok); }
+.diagram{ background: var(--c-card); border: 1px solid var(--c-line); border-radius: 8px; padding: 14px; margin: 20px 0; text-align: center; }
+.diagram svg{ max-width: 100%; height: auto; }
+.cap{ font-size: var(--fs-small); color: var(--color-muted); margin-top: 8px; }
+.ok{ color: var(--c-ok); font-weight: 700; }
+.bad{ color: var(--c-bad); font-weight: 700; }
+.lead{ background: var(--c-card); border: 1px solid var(--c-line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; font-size: var(--fs-small); }
+.lead b{ color: var(--c-accent); }
+ul, ol{ padding-left: 26px; }
+li{ margin: 5px 0; }
+.toc{ background: var(--c-card); border: 1px solid var(--c-line); border-radius: 8px; padding: 14px 18px 14px 34px; font-size: var(--fs-small); }
+.toc li{ margin: 3px 0; }
+.toc a{ color: var(--c-accent); text-decoration: none; }
+.toc a:hover{ text-decoration: underline; }
+footer{ margin-top: 52px; font-size: var(--fs-small); color: var(--color-muted); border-top: 1px solid var(--c-line); padding-top: 16px; }
+.anchor{ color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>KC-1957（nRF52832）左 Ctrl 与 Fn 完全互换改造说明<br><span style="font-size:var(--fs-h3);color:var(--color-muted);font-weight:normal;">v8 —— E0F 读取点后置</span></h1>
+
+<div class="lead">
+<b>补丁脚本</b> <code>fn_swap_debounce_inline_patch.py</code>　·　<b>独立验证脚本</b> <code>verify_v8.py</code>　·　<b>补丁产物</b> <code>KC-1957_88_v8.bin</code>（270 字节 / 18 区域）
+<br><br>
+<b>本版 = v7 + 2.4G 路径 E0F 读取点后置。</b>在 v7「左 Ctrl 与 Fn 完全互换 + P0.6 去抖」的基础上，把 2.4G 扫描路径里「在<b>行循环之前</b>一次性读入 E0F」的结构，改为「在<b>行循环之内</b>每个 row 刷新 E0F」，从而消除 v7 中 2.4G 路径最多滞后 1 个扫描周期的固有现象，与 BT 路径对齐。
+<br><br>
+<b>v8 直接对原始固件打补丁</b>（<code>KC-1957_88_orig.bin</code>），不依赖 v5/v6/v7 的任何中间产物；BT 路径<b>零字节改动</b>。
+<br><br>
+型号说明：产品型号是 <b>KC-1957</b>；固件文件名中的 <code>_88_</code> 是 88 布局代号，与型号无关。MCU 为 <b>nRF52832</b>。
+</div>
+
+<h2 id="toc">目录</h2>
+<ul class="toc">
+<li><a href="#s1">一、最终结果和逻辑</a></li>
+<li><a href="#s2">二、改造背景：v7 遗留的结构性滞后</a></li>
+<li><a href="#s3">三、改造前的固件事实</a></li>
+<li><a href="#s4">四、实现逻辑架构</a></li>
+<li><a href="#s5">五、补丁总览</a></li>
+<li><a href="#s6">六、代码改造逐点说明（原始代码 → Patch 后代码 → Trampoline）</a></li>
+<li><a href="#s7">七、v7 → v8 的精确差异</a></li>
+<li><a href="#s8">八、命令行用法</a></li>
+<li><a href="#s9">九、验证</a></li>
+<li><a href="#s10">十、已知限制与风险</a></li>
+<li><a href="#s11">十一、踩坑与逐步确认（正确性保障）</a></li>
+<li><a href="#s12">十二、v8 审计记录</a></li>
+<li><a href="#s13">十三、文件清单</a></li>
+</ul>
+
+<h2 id="s1">一、最终结果和逻辑</h2>
+
+<h3>1.1　用户可见的键位行为（与 v6/v7 完全一致，v8 不改变任何键位语义）</h3>
+<table>
+<thead><tr><th>物理键位</th><th>行为</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>矩阵 <code>r12c4</code>（idx 100）</td><td>发 <b>Left Ctrl</b>（<code>0xE0</code>）</td><td>v5 起作为 SL410K 盘体的 Fn 承载槽，v6 起改发 Left Ctrl</td></tr>
+<tr><td>矩阵 <code>r15c0</code>（idx 120）</td><td>充当 <b>Fn</b>（本身不产生独立键码）</td><td>v6 起最左下角 Left Ctrl 改当 Fn</td></tr>
+<tr><td>GPIO <code>P0.6</code></td><td>发 <b>Left Ctrl</b>（<code>0xE0</code>），<b>走去抖</b></td><td>v7 起读去抖后 E0F2，v8 不变</td></tr>
+</tbody>
+</table>
+
+<h3>1.2　v8 改变的（唯一的）行为差异</h3>
+<table>
+<thead><tr><th>路径</th><th>v7</th><th>v8</th></tr></thead>
+<tbody>
+<tr><td>BT（蓝牙）</td><td>E0F 在<b>使用点</b>即时读取，<b>无滞后</b></td><td><b>完全不变</b>（零字节改动）</td></tr>
+<tr><td>2.4G</td><td>E0F 在<b>行循环前</b>读入 <code>r7</code>，被循环内 <code>0x41286</code> 与循环后 <code>0x413D0</code> 消费 → <b>滞后 1 个扫描周期</b></td><td>E0F 在<b>行循环内</b>每个 row 刷新 <code>r7</code>，循环后的 <code>0x413D0</code> 读到<b>本轮最新</b> → <b>零滞后</b></td></tr>
+</tbody>
+</table>
+<div class="note"><span class="t">要点：</span><b>v8 不改变任何一个按键的输出，只把 2.4G 通道对 Fn 状态的「取样时刻」从上一轮纠正为本轮。</b></div>
+
+<h3>1.3　关键设计：只动 2.4G 的两个 trampoline</h3>
+<ol>
+<li><b>Trampoline C（0x50200 区）</b>：删掉 v7 里的「读 E0F → <code>mov r7,r0</code>」两步（即把 E0F 装进 <code>r7</code> 的那一步），<b>只保留</b> P0.6 → 伪 Left Ctrl 注入（读去抖变量 E0F2）。→ 由 40 字节缩到 28 字节。</li>
+<li><b>Trampoline B（0x50100 区）</b>：在 <code>.restore</code> 处新增「<code>ldr.w r7,[pc]</code> + <code>ldrb r7,[r7]</code>」两步，即<b>每个 row 都把当前 E0F 重新读进 <code>r7</code></b>。→ 由 64 字节增到 72 字节。</li>
+</ol>
+<p>净变化 <b>−4 字节</b>（v7 = 274 字节 / 18 区域 → v8 = 270 字节 / 18 区域）。</p>
+
+<h2 id="s2">二、改造背景：v7 遗留的结构性滞后</h2>
+
+<h3>2.1　v7 的 2.4G 路径结构</h3>
+<p>v6 把 2.4G 的 Fn 判定源从 GPIO P0.6 换成矩阵 r15c0 之后，2.4G 扫描函数里就形成了这样一段结构（<b>这是 v6 引入的，v7 未改变</b>）：</p>
+<pre><code>2.4G 扫描函数 FUN_00041180
+  │
+  ├─ HOOK_C @0x411C6 ── 一次性把 E0F 读进 r7
+  │      （trampoline C 的第一段：ldr.w r0,[pc] / ldrb r0,[r0] / mov r7,r0）
+  │      ※ 此刻 E0F 还是【上一轮扫描】留下的值
+  │
+  └─&lt; 行循环 r4 = 0 .. 15 &gt;
+         ├─ HOOK_B @0x41252 ── 扫描到 row15 时写 E0F = 本轮结果
+         ├─ 内层列循环 0x41268 .. 0x4131A
+         ├─ 0x41286  cbz r7   ← 消费点 ①（行循环内）
+         └─ ...
+     └─ 0x413D0  cbz r7   ← 消费点 ②（行循环后）</code></pre>
+<div class="warn"><span class="t">问题：</span><code>r7</code> 在行循环<b>之前</b>就被冻结成了上一轮的快照，而循环内、循环后两处 <code>cbz r7</code> 全程都读这个快照。行循环后那个消费点 <code>0x413D0</code>（Fn 后置动作）本应反映「本轮刚扫完」的结果，实际拿到的是上一轮。</div>
+
+<h3>2.2　BT 路径为什么没有这个问题</h3>
+<p>BT 路径的 E0F 读取点在 <b>HOOK_D（0x1EB74）</b>，位于 BT 扫描流程内部，<b>紧邻其消费点</b>；且 E0F 的<b>写入点 HOOK_A（0x1E4E4）地址在前、读取点 HOOK_D（0x1EB74）在后</b>，同处一次扫描流程内。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg" font-family="var(--ff-body)" font-size="13">
+  <defs>
+    <marker id="ar1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--c-line)"/>
+    </marker>
+  </defs>
+  <rect x="150" y="16" width="380" height="44" rx="6" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="2"/>
+  <text x="340" y="35" text-anchor="middle" font-weight="700" fill="var(--c-ok)">HOOK_A @0x1E4E4</text>
+  <text x="340" y="52" text-anchor="middle" fill="var(--color-text)">仅当 r5 == 15 时写 E0F = 本轮结果（写入点）</text>
+
+  <line x1="340" y1="60" x2="340" y2="92" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar1)"/>
+  <text x="352" y="80" font-size="11" fill="var(--color-muted)">同一轮扫描继续推进</text>
+
+  <rect x="150" y="92" width="380" height="44" rx="6" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="2"/>
+  <text x="340" y="111" text-anchor="middle" font-weight="700" fill="var(--c-ok)">HOOK_D @0x1EB74</text>
+  <text x="340" y="128" text-anchor="middle" fill="var(--color-text)">读 E0F 进 r2（使用点即时读取）</text>
+
+  <line x1="340" y1="136" x2="340" y2="168" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar1)"/>
+
+  <rect x="150" y="168" width="380" height="44" rx="6" fill="var(--c-card2)" stroke="var(--c-line)" stroke-width="2"/>
+  <text x="340" y="187" text-anchor="middle" font-weight="700" fill="var(--color-text)">0x1EB8A　cbnz r2, #0x1ebbc</text>
+  <text x="340" y="204" text-anchor="middle" fill="var(--color-text)">消费点：r2 == 0 表示「Fn 按下」</text>
+
+  <line x1="120" y1="190" x2="150" y2="190" stroke="var(--c-ok)" stroke-width="2" marker-end="url(#ar1)"/>
+  <text x="70" y="186" text-anchor="middle" font-size="12" fill="var(--c-ok)" font-weight="700">同轮闭环</text>
+  <text x="70" y="202" text-anchor="middle" font-size="11" fill="var(--color-muted)">零滞后</text>
+
+  <line x1="120" y1="232" x2="660" y2="232" stroke="var(--c-line)" stroke-width="1" stroke-dasharray="4 4"/>
+  <text x="340" y="252" text-anchor="middle" font-size="12" fill="var(--color-muted)">BT = 「先写后读、同一轮内闭环」→ 读到的就是本轮的 Fn 状态</text>
+  <text x="340" y="274" text-anchor="middle" font-size="12" fill="var(--c-accent2)">2.4G（v7）= 「先读后写、跨轮」→ 读到的是上一轮　★这正是 v8 要纠正的不对称</text>
+</svg>
+<div class="cap">图 1：BT 路径的 E0F 写入点与读取点在同一次扫描流程内且写在前 → 结构上无滞后。</div>
+</div>
+
+<h3>2.3　影响面评估</h3>
+<p>滞后对象是<b>修饰键状态位</b>（Fn 标志），不是键码本身：Fn 本身<b>不产生独立键码</b>（<code>KEYTBL[120] = 0x00</code>），它只决定 Fn 层（<code>0x20002109</code> = E0F &amp;&amp; D7B）是否激活、以及 Fn 修饰位是否出现在 HID 报告里。</p>
+<ol>
+<li><b>Fn 后置动作（<code>0x413D0</code>）比 Fn 按下晚一拍</b>——例如「Fn + 某键」组合中，Fn 层的展开/收起比按键本身晚一个扫描周期；</li>
+<li><b>松手时多残留一拍</b>——Fn 刚松开时，行循环后的后置动作仍会按「Fn 还按着」执行一次。</li>
+</ol>
+<p>v8 把这个残留窗口消除，同时<b>不引入任何新的时序风险</b>（见第十章）。</p>
+
+<h2 id="s3">三、改造前的固件事实</h2>
+
+<h3>3.1　键位矩阵与键码表</h3>
+<p>矩阵为 16 行 × 8 列，列位图低位对应 col0。改造涉及两个槽位：</p>
+<table>
+<thead><tr><th>槽位</th><th>idx</th><th>原始键码</th><th>v8 之后</th><th>承担角色</th></tr></thead>
+<tbody>
+<tr><td><code>r15c0</code></td><td>120</td><td><code>0xE0</code>（Left Ctrl）</td><td><code>0x00</code></td><td>充当 <b>Fn</b>（不产生独立键码）</td></tr>
+<tr><td><code>r12c4</code></td><td>100</td><td><code>0x00</code>（空槽）</td><td><code>0xE0</code></td><td>发 <b>Left Ctrl</b></td></tr>
+</tbody>
+</table>
+<table>
+<thead><tr><th>表</th><th>基址</th><th><code>[100]</code> (r12c4)</th><th><code>[120]</code> (r15c0)</th></tr></thead>
+<tbody>
+<tr><td><code>KEYTBL_BT</code></td><td><code>0x2CBF0</code></td><td><code>0x2CC54</code></td><td><code>0x2CC68</code></td></tr>
+<tr><td><code>KEYTBL_G</code></td><td><code>0x4A6FA</code></td><td><code>0x4A75E</code></td><td><code>0x4A772</code></td></tr>
+</tbody>
+</table>
+
+<h3>3.2　行掩码必须放行 col4（r12c4）</h3>
+<p><code>r12c4</code> 在原始固件里是<b>被掩码屏蔽</b>的空槽，改造后必须让它参与扫描：</p>
+<table>
+<thead><tr><th>路径</th><th>行掩码地址</th><th>原值</th><th>新值</th><th>极性</th></tr></thead>
+<tbody>
+<tr><td>BT row12</td><td><code>0x1E84C</code></td><td><code>0xE7</code></td><td><code>0xF7</code></td><td>高有效 → <code>|= bit4</code></td></tr>
+<tr><td>2.4G row12</td><td><code>0x4A6B2</code></td><td><code>1C</code></td><td><code>0x0C</code></td><td>低有效 → <code>&amp;= ~bit4</code></td></tr>
+</tbody>
+</table>
+<div class="note"><span class="t">启动时自检：</span><b>row15 的 bit0 不能被屏蔽</b>（否则 Fn 永不触发）。补丁脚本现场复核：BT row15 = <code>0x41</code>（bit0 = 1）、2.4G row15 = <code>0xBE</code>（bit0 = 0），两条路径下 r15c0 都参与扫描。</div>
+
+<h3>3.3　2.4G 扫描函数的行循环结构（v8 设计的依据）</h3>
+<p><code>FUN_00041180</code> 的行循环是<b>外层 r4 计行、内层逐位扫列</b>的两层结构：</p>
+<pre><code>0x411C6   bl  #0x50200        ; ← HOOK_C（在行循环【之前】：P0.6 判定 / 伪键注入）
+0x411CA   nop ×7
+0x411D8   movs r4, #0         ; ← 外层行计数器 r4 归零
+0x411DA   ldr  r1, [pc, #0x3c8]  ; ← 外层行循环体起点（0x413C0 blo.w 回跳至此）
+0x411DC   ldr  r0, [pc, #0x3c8]
+0x411DE   adds r1, #0xc
+0x411E0   str  r0, [r1]
+0x411E2   ldr.w sl, [pc, #0x3c8]
+
+0x41240   add  r1, sp, #0x24       ; local_84[r4]
+0x41246   str.w r0, [r1, r4, lsl #2]
+0x4124A   ldrb r2, [r2, r4]        ; 该行的列数据
+0x4124C   bics r0, r2              ; r0 = 该行列位图
+0x4124E   str.w r0, [r1, r4, lsl #2]
+
+0x41252   bl  #0x50100        ; ← HOOK_B（行循环【内】，每个 row 都执行）
+0x41256   lsl.w r1, r8, r2
+0x4125A   ldr  r2, [pc, #0x354]
+0x4125C   str  r1, [r2]
+0x4125E   beq  #0x4133e
+
+0x41260   movs r3, #0
+0x41262   movs r2, #7
+0x41264   mov.w r1, r8
+0x41268   lsl.w ip, r1, r2        ; ← 内层列循环起点
+0x4126C   tst.w r0, ip            ;   逐位测试 r0（v6 修正① 的由来）
+0x41270   beq  #0x41318
+   …
+0x41286   cbz  r7, #0x412ca       ; ★ 消费点 ①（行循环内）
+   …
+0x4131A   bhs  #0x41268           ; ← 内层列循环回跳
+
+0x413BC   adds r4, r4, #1
+0x413BE   cmp  r4, #0x10
+0x413C0   blo.w #0x411da          ; ← 外层行循环回跳（r4: 0→0xF）
+
+0x413CC   cmp  r6, #0x10
+0x413CE   bne  #0x413d2
+0x413D0   cbz  r7, #0x41422       ; ★ 消费点 ②（行循环后）—— v8 的目标位置
+0x413D2   ldr  r3, [pc, #0x1e4]</code></pre>
+
+<h4>3.3.1　<code>r7</code> 的完整生命周期（v8 设计的关键前提）</h4>
+<p><code>r7</code> 在 2.4G 扫描函数里的每一次赋值与每一次读取都已逐条枚举（反汇编全函数体 <code>0x41180</code>–<code>0x413B2</code>）：</p>
+<table>
+<thead><tr><th>#</th><th>地址</th><th>指令</th><th>时机</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td>W1</td><td><code>0x41180</code></td><td><code>push.w {r4,r5,r6,r7,r8,sb,sl,fp,lr}</code></td><td>函数序言</td><td>保存被调用者保存寄存器</td></tr>
+<tr><td>W2</td><td><code>0x41184</code></td><td><code>mov.w fp, #0</code></td><td>函数序言</td><td><b>帧指针被置 0</b>（非标准 prologue）</td></tr>
+<tr><td>W3</td><td><code>0x4119C</code></td><td><code>mov r7, fp</code></td><td>函数序言</td><td>⇒ <b>r7 初值 = 0</b></td></tr>
+<tr><td>W4</td><td><code>0x411CE</code></td><td><code>movs r7, #1</code></td><td>HOOK_C 内，<b>仅当 P0.6 按下</b></td><td>r7 = 1 ⇒ 「Fn 按下」</td></tr>
+<tr><td>W5</td><td><code>0x413AE</code></td><td><code>pop.w {…,r7,…,pc}</code></td><td>函数尾声</td><td>恢复 r7（在行循环之后，不影响消费点）</td></tr>
+<tr><td>—</td><td><code>0x41286</code></td><td><code>cbz r7, #0x412ca</code></td><td><b>行循环内</b></td><td>消费点 ①</td></tr>
+<tr><td>—</td><td><code>0x413D0</code></td><td><code>cbz r7, #0x41422</code></td><td><b>行循环后</b></td><td>消费点 ②</td></tr>
+</tbody>
+</table>
+<p>原始固件的函数序言（取自 <code>KC-1957_88_orig.bin</code>）：</p>
+<pre><code>0x41180   2D E9 F0 4F    push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}
+0x41184   4F F0 00 0B    mov.w  fp, #0             ; ★ 帧指针 = 0
+0x41188   A1 B0          sub    sp, #0x84
+0x4118A   D9 46          mov    sb, fp
+0x41198   5D 46          mov    r5, fp
+0x4119A   5E 46          mov    r6, fp
+0x4119C   5F 46          mov    r7, fp             ; ★ r7 = fp = 0
+   …
+0x411CE   01 27          movs   r7, #1             ; 仅当 P0.6 按下
+0x411D6   3D 46          mov    r5, r7</code></pre>
+<div class="okbox"><span class="t">由此得到原始固件中 <code>cbz r7</code> 的真实语义：</span>因为 <code>fp = 0</code>（W2）⇒ <code>r7 = 0</code>（W3），而只有 P0.6 按下时 <code>r7</code> 才被置 1（W4），所以<br>
+<b><code>cbz r7</code> ≡ 「Fn（P0.6）未按下」分支</b>（<code>r7</code> 的取值只可能是 0 或 1）。</div>
+<p><b>v6 起</b>把 r7 的载体从 P0.6 换成矩阵 Fn（E0F），<b>分支极性保持一致</b>：</p>
+<pre><code>原始固件： r7 = (P0.6 按下) ? 1 : 0     →  cbz r7 = 「P0.6 未按下」
+v6 / v7：  r7 = E0F（矩阵 Fn 标志）      →  cbz r7 = 「矩阵 Fn 未按下」（E0F == 0）
+v8：       r7 = E0F，每 row 刷新          →  cbz r7 = 「矩阵 Fn 未按下」（本轮最新 E0F）</code></pre>
+<p><b>v8 的改动只发生在「r7 何时被重新赋值」这一项上</b>，不改变 r7 的语义、不改变分支极性：</p>
+<table>
+<thead><tr><th>版本</th><th>r7 的赋值时机</th><th>消费点 ①/② 读到的值</th></tr></thead>
+<tbody>
+<tr><td>原始</td><td>序言（=0）+ P0.6 按下时（=1）</td><td>当轮 P0.6 状态</td></tr>
+<tr><td>v6 / v7</td><td><b>行循环之前</b>一次性（HOOK_C）</td><td><b>上一轮</b>的矩阵 Fn 状态</td></tr>
+<tr><td><b>v8</b></td><td><b>行循环之内</b>每 row 一次（HOOK_B）</td><td><b>本轮最新</b>的矩阵 Fn 状态</td></tr>
+</tbody>
+</table>
+<div class="note"><span class="t">安全性推论：</span><code>0x4119C</code>（W3）位于行循环之前、<code>0x413AE</code>（W5）位于行循环之后，两者都不影响两个消费点；而行循环内 trampoline B 在 <code>0x41252</code> 执行、<b>早于</b> <code>0x41286</code>，因此即使删掉 HOOK_C 的赋值，<code>r7</code> 在两个消费点处也<b>始终是已定义且新鲜</b>的。</div>
+
+<div class="diagram">
+<svg viewBox="0 0 680 340" xmlns="http://www.w3.org/2000/svg" font-family="var(--ff-body)" font-size="13">
+  <defs>
+    <marker id="ar2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--c-line)"/>
+    </marker>
+  </defs>
+  <rect x="150" y="14" width="380" height="46" rx="6" fill="var(--c-warn-bg)" stroke="var(--c-accent2)" stroke-width="2"/>
+  <text x="340" y="33" text-anchor="middle" font-weight="700" fill="var(--c-accent2)">HOOK_C @0x411C6（行循环之前）</text>
+  <text x="340" y="50" text-anchor="middle" fill="var(--color-text)">v7：r7 = E0F　← 上一轮快照</text>
+
+  <line x1="340" y1="60" x2="340" y2="86" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar2)"/>
+  <text x="352" y="78" font-size="11" fill="var(--color-muted)">0x411D8 movs r4,#0</text>
+
+  <rect x="90" y="86" width="500" height="150" rx="8" fill="var(--c-card2)" stroke="var(--c-accent)" stroke-width="2"/>
+  <text x="340" y="106" text-anchor="middle" font-weight="700" fill="var(--c-accent)">外层行循环　r4 = 0 … 0xF　（0x411DA … 0x413C0 blo.w 回跳）</text>
+  <rect x="130" y="118" width="420" height="38" rx="5" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="1.5"/>
+  <text x="340" y="135" text-anchor="middle" fill="var(--color-text)">HOOK_B @0x41252　r4 == 15 时写 E0F = 本轮结果</text>
+  <text x="340" y="151" text-anchor="middle" font-size="11" fill="var(--color-muted)">每个 row 都执行（行循环内）</text>
+  <rect x="130" y="166" width="420" height="34" rx="5" fill="var(--c-card)" stroke="var(--c-line)" stroke-width="1.5"/>
+  <text x="340" y="188" text-anchor="middle" fill="var(--color-text)">内层列循环 0x41268 … 0x4131A bhs　★ 0x41286 cbz r7（消费点 ①）</text>
+  <text x="340" y="226" text-anchor="middle" font-size="11" fill="var(--color-muted)">r4 递增到 0x10 → 退出行循环</text>
+
+  <path d="M590,161 C640,161 640,96 590,96" fill="none" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar2)"/>
+  <text x="645" y="130" text-anchor="start" font-size="11" fill="var(--color-muted)">r4++</text>
+
+  <line x1="340" y1="236" x2="340" y2="264" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="150" y="264" width="380" height="50" rx="6" fill="var(--c-bad-bg)" stroke="var(--c-bad)" stroke-width="2"/>
+  <text x="340" y="284" text-anchor="middle" font-weight="700" fill="var(--c-bad)">0x413D0　cbz r7（消费点 ② · 行循环后）</text>
+  <text x="340" y="303" text-anchor="middle" fill="var(--color-text)">v7：用的是【旧】E0F　⚠ 滞后 1 个扫描周期</text>
+</svg>
+<div class="cap">图 2：2.4G 路径的 r7 写入点（HOOK_C，行循环前）与两个消费点（0x41286 行循环内、0x413D0 行循环后）。</div>
+</div>
+
+<div class="okbox"><span class="t">三个关键事实：</span>
+<ol style="margin-bottom:0">
+<li><code>r7</code> 在 2.4G 扫描函数内被<b>两处</b> <code>cbz</code> 消费：<code>0x41286</code>（行循环内）与 <code>0x413D0</code>（行循环后）。这是 v8 设计的全部依据——补丁脚本把这两条 <code>cbz r7</code> 的存在写成了<b>启动时断言</b>。</li>
+<li>外层行循环 <code>r4</code> 从 0 递增到 0xF，<b>row15 是最后一行</b>。矩阵式 Fn（r15c0）的 E0F 只在最后一次迭代才被最终确定。</li>
+<li><code>HOOK_B</code> 位于<b>行循环内</b>、且<b>在 <code>0x41286</code> 之前</b>执行——这正是 v8 刷新 <code>r7</code> 的落点。</li>
+</ol>
+</div>
+
+<h3>3.4　BT 扫描函数的相关位置</h3>
+<table>
+<thead><tr><th>地址</th><th>内容</th><th>与 v8 的关系</th></tr></thead>
+<tbody>
+<tr><td><code>0x1E4E4</code></td><td>HOOK_A：行循环内，<code>r5 == 15</code> 时写 E0F</td><td><b>v8 不改</b></td></tr>
+<tr><td><code>0x1EB74</code></td><td>HOOK_D：读 E0F 进 <code>r2</code>，紧邻消费点 <code>0x1EB8A cbnz r2</code></td><td><b>v8 不改</b></td></tr>
+<tr><td><code>0x1E4E4</code> &lt; <code>0x1EB74</code></td><td>写入点在读取点之前，同处一次扫描流程</td><td>BT 无滞后的结构原因</td></tr>
+</tbody>
+</table>
+
+<h2 id="s4">四、实现逻辑架构</h2>
+
+<h3>4.1　信号流总览</h3>
+<div class="diagram">
+<svg viewBox="0 0 680 490" xmlns="http://www.w3.org/2000/svg" font-family="var(--ff-body)">
+  <defs>
+    <marker id="ar4" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7.5,3 L0,6 Z" fill="var(--c-line)"/>
+    </marker>
+  </defs>
+
+  <!-- 列标题 -->
+  <text x="16" y="36" font-size="13" font-weight="700" fill="var(--color-muted)">① 状态变量的产生</text>
+  <text x="360" y="36" font-size="13" font-weight="700" fill="var(--color-muted)">② 2.4G 通道（v8 改动点）</text>
+
+  <!-- a1 -->
+  <rect x="16" y="52" width="288" height="44" rx="6" fill="var(--c-card2)" stroke="var(--c-line)" stroke-width="1.5"/>
+  <text x="160" y="70" text-anchor="middle" font-size="12" fill="var(--color-text)">GPIO 列电平 → 行掩码</text>
+  <text x="160" y="87" text-anchor="middle" font-size="12" fill="var(--color-text)">→ 列位图 local_84[r4]</text>
+
+  <!-- a2 -->
+  <rect x="16" y="112" width="288" height="48" rx="6" fill="var(--c-card2)" stroke="var(--c-line)" stroke-width="1.5"/>
+  <text x="160" y="130" text-anchor="middle" font-size="12" fill="var(--color-text)">r15c0 命中？(row15 · bit0)</text>
+  <text x="160" y="147" text-anchor="middle" font-size="12" fill="var(--color-text)">HOOK_A(BT) / HOOK_B(2.4G) 写 E0F = 1 / 0</text>
+
+  <!-- a3 : E0F -->
+  <rect x="16" y="176" width="288" height="46" rx="6" fill="var(--c-card2)" stroke="var(--c-accent)" stroke-width="2"/>
+  <text x="160" y="194" text-anchor="middle" font-size="13" font-weight="700" fill="var(--c-accent)">E0F @0x20001E0F</text>
+  <text x="160" y="211" text-anchor="middle" font-size="12" fill="var(--color-text)">矩阵 Fn 标志（1 = 按下）</text>
+
+  <!-- a5 : Fn 层激活 -->
+  <rect x="16" y="238" width="288" height="50" rx="6" fill="var(--c-card2)" stroke="var(--c-accent)" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="160" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="var(--c-accent)">0x20002109　Fn 层激活</text>
+  <text x="160" y="273" text-anchor="middle" font-size="12" fill="var(--color-text)">= E0F &amp;&amp; D7B（D7B = 0x20001D7B）</text>
+
+  <!-- a4 : E0F2 -->
+  <rect x="16" y="304" width="288" height="52" rx="6" fill="var(--c-warn-bg)" stroke="var(--c-accent2)" stroke-width="2"/>
+  <text x="160" y="322" text-anchor="middle" font-size="12" font-weight="700" fill="var(--c-accent2)">P0.6 原始电平 → FUN_0001b75c 去抖</text>
+  <text x="160" y="339" text-anchor="middle" font-size="12" fill="var(--color-text)">→ E0F2 @0x20004800（P0.6 去抖后）</text>
+  <text x="160" y="372" text-anchor="middle" font-size="11" fill="var(--color-muted)">去抖状态机经 0x2B950 回调表周期调度</text>
+
+  <!-- b1 : HOOK_B -->
+  <rect x="360" y="52" width="304" height="70" rx="6" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="2"/>
+  <text x="512" y="74" text-anchor="middle" font-size="13" font-weight="700" fill="var(--c-ok)">HOOK_B .restore @0x50100　★v8</text>
+  <text x="512" y="92" text-anchor="middle" font-size="12" fill="var(--color-text)">行循环内 · 每个 row 都执行</text>
+  <text x="512" y="110" text-anchor="middle" font-size="12" fill="var(--color-text)">r7 = E0F（每个 row 刷新为当前值）</text>
+
+  <!-- b2 -->
+  <rect x="360" y="140" width="304" height="50" rx="6" fill="var(--c-card2)" stroke="var(--c-line)" stroke-width="1.5"/>
+  <text x="512" y="158" text-anchor="middle" font-size="12" font-weight="700" fill="var(--color-text)">0x41286　cbz r7</text>
+  <text x="512" y="175" text-anchor="middle" font-size="12" fill="var(--color-text)">行循环内 · 消费点 ①</text>
+
+  <!-- b3 -->
+  <rect x="360" y="208" width="304" height="66" rx="6" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="2"/>
+  <text x="512" y="226" text-anchor="middle" font-size="12" font-weight="700" fill="var(--c-ok)">0x413D0　cbz r7</text>
+  <text x="512" y="244" text-anchor="middle" font-size="12" fill="var(--color-text)">行循环后 · 消费点 ②</text>
+  <text x="512" y="262" text-anchor="middle" font-size="12" font-weight="700" fill="var(--c-ok)">✓ 读到本轮最新 E0F（零滞后）</text>
+
+  <!-- b4 -->
+  <rect x="360" y="304" width="304" height="52" rx="6" fill="var(--c-warn-bg)" stroke="var(--c-accent2)" stroke-width="2"/>
+  <text x="512" y="322" text-anchor="middle" font-size="12" font-weight="700" fill="var(--c-accent2)">HOOK_C @0x50200：读 E0F2</text>
+  <text x="512" y="339" text-anchor="middle" font-size="12" fill="var(--color-text)">→ 注入伪 Left Ctrl 0xE0（去抖后）</text>
+
+  <!-- b5 : BT 路径 -->
+  <rect x="16" y="386" width="648" height="56" rx="6" fill="var(--c-card2)" stroke="var(--c-line)" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="340" y="404" text-anchor="middle" font-size="12" font-weight="700" fill="var(--color-muted)">BT 路径（v8 未改动任何字节）</text>
+  <text x="340" y="422" text-anchor="middle" font-size="12" fill="var(--color-text)">HOOK_A @0x1E4E4 写 E0F → HOOK_D @0x1EB74 读 E0F → 0x1EB8A cbnz r2 消费　（同一轮内「先写后读」闭环）</text>
+
+  <!-- 连线 -->
+  <line x1="160" y1="96"  x2="160" y2="112" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar4)"/>
+  <line x1="160" y1="160" x2="160" y2="176" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar4)"/>
+  <line x1="160" y1="222" x2="160" y2="238" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar4)"/>
+  <path d="M304,199 H332 V87 H360" fill="none" stroke="var(--c-accent)" stroke-width="2" marker-end="url(#ar4)"/>
+  <text x="346" y="80" text-anchor="middle" font-size="10" fill="var(--c-accent)" font-weight="700">E0F</text>
+  <line x1="304" y1="330" x2="360" y2="330" stroke="var(--c-accent2)" stroke-width="2" marker-end="url(#ar4)"/>
+  <text x="332" y="322" text-anchor="middle" font-size="10" fill="var(--c-accent2)" font-weight="700">E0F2</text>
+  <line x1="512" y1="122" x2="512" y2="140" stroke="var(--c-ok)" stroke-width="2" marker-end="url(#ar4)"/>
+  <line x1="512" y1="190" x2="512" y2="208" stroke="var(--c-ok)" stroke-width="2" marker-end="url(#ar4)"/>
+
+  <!-- 图例 -->
+  <rect x="16"  y="456" width="14" height="14" rx="3" fill="var(--c-card2)" stroke="var(--c-line)"/>
+  <text x="36"  y="467" font-size="11" fill="var(--color-muted)">普通流程</text>
+  <rect x="110" y="456" width="14" height="14" rx="3" fill="var(--c-card2)" stroke="var(--c-accent)"/>
+  <text x="130" y="467" font-size="11" fill="var(--color-muted)">E0F 矩阵 Fn 标志</text>
+  <rect x="250" y="456" width="14" height="14" rx="3" fill="var(--c-warn-bg)" stroke="var(--c-accent2)"/>
+  <text x="270" y="467" font-size="11" fill="var(--color-muted)">E0F2 P0.6 去抖后状态</text>
+  <rect x="430" y="456" width="14" height="14" rx="3" fill="var(--c-ok-bg)" stroke="var(--c-ok)"/>
+  <text x="450" y="467" font-size="11" fill="var(--color-muted)">v8 关键路径（零滞后）</text>
+</svg>
+<div class="cap">图 3：信号流总览 —— 矩阵扫描产出 <b>E0F</b>、P0.6 经去抖状态机产出 <b>E0F2</b>；2.4G 通道在<b>行循环内</b>把 E0F 刷新进 <code>r7</code>（★v8），供行循环内 / 行循环后两处 <code>cbz r7</code> 消费。</div>
+</div>
+
+<h3>4.2　v7 → v8 的执行流对比（框图）</h3>
+
+<div class="diagram">
+<svg viewBox="0 0 680 330" xmlns="http://www.w3.org/2000/svg" font-family="var(--ff-body)" font-size="13">
+  <defs>
+    <marker id="ar3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--c-line)"/>
+    </marker>
+  </defs>
+  <text x="24" y="20" font-weight="700" font-size="14" fill="var(--c-bad)">v7（滞后 1 轮）</text>
+  <rect x="24" y="32" width="300" height="44" rx="6" fill="var(--c-warn-bg)" stroke="var(--c-accent2)" stroke-width="2"/>
+  <text x="174" y="50" text-anchor="middle" font-weight="700" fill="var(--c-accent2)">HOOK_C 0x411C6</text>
+  <text x="174" y="67" text-anchor="middle" fill="var(--color-text)">r7 = E0F（★上一轮快照）</text>
+  <line x1="174" y1="76" x2="174" y2="98" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar3)"/>
+  <rect x="24" y="98" width="300" height="92" rx="7" fill="var(--c-card2)" stroke="var(--c-line)" stroke-width="2"/>
+  <text x="174" y="117" text-anchor="middle" font-weight="700" fill="var(--color-text)">行循环 r4 = 0..15</text>
+  <text x="174" y="137" text-anchor="middle" fill="var(--color-text)">HOOK_B：r4==15 写 E0F（r7 不刷新）</text>
+  <text x="174" y="157" text-anchor="middle" fill="var(--color-text)">0x41286 cbz r7 → 用【旧】E0F</text>
+  <text x="174" y="177" text-anchor="middle" font-size="11" fill="var(--color-muted)">Fn 次级行为</text>
+  <line x1="174" y1="190" x2="174" y2="212" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar3)"/>
+  <rect x="24" y="212" width="300" height="48" rx="6" fill="var(--c-bad-bg)" stroke="var(--c-bad)" stroke-width="2"/>
+  <text x="174" y="231" text-anchor="middle" font-weight="700" fill="var(--c-bad)">0x413D0 cbz r7</text>
+  <text x="174" y="250" text-anchor="middle" fill="var(--color-text)">用【旧】E0F　⚠ 滞后 1 个扫描周期</text>
+
+  <text x="356" y="20" font-weight="700" font-size="14" fill="var(--c-ok)">v8（零滞后）</text>
+  <rect x="356" y="32" width="300" height="158" rx="7" fill="var(--c-card2)" stroke="var(--c-ok)" stroke-width="2"/>
+  <text x="506" y="51" text-anchor="middle" font-weight="700" fill="var(--c-ok)">行循环 r4 = 0..15</text>
+  <rect x="376" y="60" width="260" height="56" rx="5" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="1.5"/>
+  <text x="506" y="79" text-anchor="middle" fill="var(--color-text)">HOOK_B → bl 0x50100</text>
+  <text x="506" y="96" text-anchor="middle" fill="var(--color-text)">r4==15：E0F = 本轮结果</text>
+  <text x="506" y="111" text-anchor="middle" font-weight="700" fill="var(--c-ok)">r7 = E0F（每 row 刷新）★v8</text>
+  <text x="506" y="133" text-anchor="middle" fill="var(--color-text)">0x41286 cbz r7 → r4&lt;15 上轮</text>
+  <text x="506" y="150" text-anchor="middle" fill="var(--color-text)">　　　　　　　　 r4==15 本轮</text>
+  <text x="506" y="176" text-anchor="middle" font-size="11" fill="var(--color-muted)">与 BT 同构</text>
+  <line x1="506" y1="190" x2="506" y2="212" stroke="var(--c-line)" stroke-width="2" marker-end="url(#ar3)"/>
+  <rect x="356" y="212" width="300" height="48" rx="6" fill="var(--c-ok-bg)" stroke="var(--c-ok)" stroke-width="2"/>
+  <text x="506" y="231" text-anchor="middle" font-weight="700" fill="var(--c-ok)">0x413D0 cbz r7</text>
+  <text x="506" y="250" text-anchor="middle" fill="var(--color-text)">用【本轮刚扫得的 E0F】✓ 零滞后</text>
+
+  <line x1="340" y1="16" x2="340" y2="268" stroke="var(--c-line)" stroke-width="1" stroke-dasharray="4 4"/>
+  <text x="340" y="292" text-anchor="middle" font-size="12" fill="var(--color-muted)">唯一差异：<tspan font-family="var(--ff-mono)">r7</tspan> 的写入时机与取样频率</text>
+  <text x="340" y="314" text-anchor="middle" font-size="12" fill="var(--c-accent2)">v7 = 快照（循环前一次）　→　v8 = 实时镜像（每 row 一次）</text>
+</svg>
+<div class="cap">图 4：v7 与 v8 的执行流对照。改动只发生在 2.4G 通道的 r7 取样上。</div>
+</div>
+
+<h3>4.3　为什么「行循环内刷新」就能消除滞后</h3>
+<p>关键在于 <b>row15 是外层行循环的最后一次迭代</b>：</p>
+<ul>
+<li>迭代 <code>r4 = 15</code> 时，HOOK_B 先把 E0F 写成本轮结果，紧接着在 <code>.restore</code> 处执行 <code>r7 = E0F</code>；</li>
+<li>之后外层循环 <code>r4</code> 递增到 0x10，<code>blo.w</code> 不再跳转，退出行循环；</li>
+<li>循环后的 <code>0x413D0 cbz r7</code> 读到的 <code>r7</code> 就是<b>本轮 row15 刚写下的值</b> → 与 BT 的「同一轮内写完再读」完全对称。</li>
+</ul>
+<div class="note"><span class="t">固有 1 周期说明：</span>矩阵式 Fn（r15c0）的 E0F 必须在扫描到 row15 时才最终确定，而 row15 排在最后一行，因此相对「GPIO 直读式 Fn（P0.6）零滞后」必然存在最多 1 个扫描周期的固有滞后。v8 消除的是「<b>用上一轮的值</b>」这个<b>额外</b>的一拍，使 2.4G 与 BT 的行为完全一致。</div>
+
+<h2 id="s5">五、补丁总览</h2>
+
+<h3>5.1　数据补丁（6 字节 + 1 个字面量）</h3>
+<table>
+<thead><tr><th>地址</th><th>名称</th><th>原值 → 新值</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><code>0x02CC54</code></td><td>KEYTBL_BT[100] (r12c4)</td><td><code>0x00</code> → <code>0xE0</code></td><td>r12c4 发 Left Ctrl</td></tr>
+<tr><td><code>0x02CC68</code></td><td>KEYTBL_BT[120] (r15c0)</td><td><code>0xE0</code> → <code>0x00</code></td><td>r15c0 不发码（当 Fn）</td></tr>
+<tr><td><code>0x04A75E</code></td><td>KEYTBL_G[100] (r12c4)</td><td><code>0x00</code> → <code>0xE0</code></td><td>r12c4 发 Left Ctrl</td></tr>
+<tr><td><code>0x04A772</code></td><td>KEYTBL_G[120] (r15c0)</td><td><code>0xE0</code> → <code>0x00</code></td><td>r15c0 不发码（当 Fn）</td></tr>
+<tr><td><code>0x01E84C</code></td><td>BT 行掩码 row12</td><td><code>0xE7</code> → <code>0xF7</code></td><td>放行 col4（高有效）</td></tr>
+<tr><td><code>0x04A6B2</code></td><td>2.4G 行掩码 row12</td><td><code>0x1C</code> → <code>0x0C</code></td><td>放行 col4（低有效）</td></tr>
+<tr><td><code>0x01B8A0</code></td><td>字面量池槽</td><td><code>0x20001E0F</code> → <code>0x20004800</code></td><td>去抖状态机改写 E0F2，与 E0F 解耦</td></tr>
+</tbody>
+</table>
+
+<h3>5.2　代码钩子</h3>
+<table>
+<thead><tr><th>钩子</th><th>地址</th><th>长度</th><th>目标</th><th>v8 相对 v7</th></tr></thead>
+<tbody>
+<tr><td>HOOK_A</td><td><code>0x1E4E4</code></td><td>4B</td><td><code>0x50000</code></td><td>不变</td></tr>
+<tr><td>HOOK_B</td><td><code>0x41252</code></td><td>4B</td><td><code>0x50100</code></td><td><b>trampoline 内容变了（+8B）</b></td></tr>
+<tr><td>HOOK_C</td><td><code>0x411C6</code></td><td>18B</td><td><code>0x50200</code></td><td><b>trampoline 内容变了（−12B）</b></td></tr>
+<tr><td>HOOK_D</td><td><code>0x1EB74</code></td><td>22B</td><td><code>0x50300</code></td><td>不变</td></tr>
+<tr><td>HOOK_E</td><td><code>0x23A76</code></td><td>4B</td><td><code>0x50400</code></td><td>不变</td></tr>
+</tbody>
+</table>
+
+<h3>5.3　变量分配</h3>
+<table>
+<thead><tr><th>变量</th><th>地址</th><th>角色</th><th>归属</th></tr></thead>
+<tbody>
+<tr><td>E0F</td><td><code>0x20001E0F</code></td><td>矩阵 r15c0 的 Fn 标志（1/0）</td><td>v6 起由 HOOK_A / HOOK_B 写</td></tr>
+<tr><td>E0F2</td><td><code>0x20004800</code></td><td>P0.6 去抖后状态</td><td>v6 起由去抖状态机 <code>FUN_0001b75c</code> 独占写</td></tr>
+<tr><td>2109</td><td><code>0x20002109</code></td><td>Fn 层激活 = E0F &amp;&amp; D7B</td><td>原始固件计算，不动</td></tr>
+</tbody>
+</table>
+<p>E0F2 的选址经过保守扫描复核：固件内 665 个 RAM 变量引用中，<code>0x20004800</code>–<code>0x200048FF</code> 窗口内<b>引用数为 0</b>，选址安全。</p>
+
+<h2 id="s6">六、代码改造逐点说明（原始代码 → Patch 后代码 → Trampoline）</h2>
+<p>以下每一段都附<b>真实二进制数值</b>（小端），取自 <code>KC-1957_88_orig.bin</code>（原始）与 <code>KC-1957_88_v8.bin</code>（成品），与 <code>fn_swap_debounce_inline_patch.py</code> 逐字节一致。</p>
+
+<h3>6.1　Hook A：BT 扫描行循环（@0x1E4E4）— v8 未改</h3>
+<h4>① 原始代码</h4>
+<pre><code>0x1E4E4   00 BF          nop
+0x1E4E6   DC 49          ldr   r1, [pc, #0x370]     ; r1 ← ROWPIN(0x2CBE0) 行引脚表
+0x1E4E8   4A 5D          ldrb  r2, [r1, r5]         ; 读 r5 行的列电平
+0x1E4EA   01 21          movs  r1, #1
+0x1E4EC   01 FA 02 F0    lsl.w  r0, r1, r2          ; r0 = 列位图
+0x1E4F0   D8 49          ldr   r1, [pc, #0x360]
+0x1E4F2   10 39          subs  r1, #0x10
+0x1E4F4   08 60          str   r0, [r1]             ; local_64[r5] = 列位图
+0x1E4F6   00 BF          nop
+0x1E4F8   D5 48          ldr   r0, [pc, #0x354]
+0x1E4FA   D6 49          ldr   r1, [pc, #0x358]
+0x1E4FC   08 60          str   r0, [r1]
+0x1E4FE   05 20          movs  r0, #5</code></pre>
+<h4>② Patch 后代码</h4>
+<pre><code>0x1E4E4   31 F0 8C FD    bl    #0x50000             ; ← 替换 nop + ldr
+0x1E4E8   4A 5D          ldrb  r2, [r1, r5]         ; 后续指令与原始完全一致
+0x1E4EA   01 21          movs  r1, #1
+0x1E4EC   01 FA 02 F0    lsl.w  r0, r1, r2
+0x1E4F0   D8 49          ldr   r1, [pc, #0x360]
+0x1E4F2   10 39          subs  r1, #0x10
+0x1E4F4   08 60          str   r0, [r1]
+0x1E4F6   00 BF          nop
+0x1E4F8   D5 48          ldr   r0, [pc, #0x354]
+0x1E4FA   D6 49          ldr   r1, [pc, #0x358]
+0x1E4FC   08 60          str   r0, [r1]
+0x1E4FE   05 20          movs  r0, #5</code></pre>
+<p>原始 16 进制：<code>00 BF DC 49 4A 5D 01 21 01 FA 02 F0 D8 49 10 39 08 60 00 BF D5 48 D6 49 08 60 05 20</code><br>→ Patch 后：<code>31 F0 8C FD 4A 5D 01 21 01 FA 02 F0 D8 49 10 39 08 60 00 BF D5 48 D6 49 08 60 05 20</code></p>
+<h4>③ Trampoline A（@0x50000，60 字节）</h4>
+<pre><code>0x50000   0F 2D          cmp   r5, #0xf          ; 仅当扫描到 row15 才处理
+0x50002   12 D1          bne   #0x5002a          ; .restore
+0x50004   10 F0 01 0F    tst.w r0, #1            ; 当前行列位图 bit0（col0 = r15c0）
+0x50008   0B D0          beq   #0x50022          ; bit0=0 → .zero
+0x5000A   01 22          movs  r2, #1
+0x5000C   DF F8 20 10    ldr.w r1, [pc, #0x20]   ; r1 ← 池 @0x50030 = E0F
+0x50010   0A 70          strb  r2, [r1]          ; E0F = 1（矩阵 Fn 按下）
+0x50012   07 A9          add   r1, sp, #0x1c     ; r1 ← local_64[15]
+0x50014   51 F8 25 20    ldr.w r2, [r1, r5, lsl #2]
+0x50018   22 F0 01 02    bic   r2, r2, #1        ; 清 bit0
+0x5001C   41 F8 25 20    str.w r2, [r1, r5, lsl #2]
+0x50020   03 E0          b     #0x5002a
+0x50022   00 22          movs  r2, #0            ; .zero
+0x50024   DF F8 0C 10    ldr.w r1, [pc, #0xc]    ; r1 ← E0F
+0x50028   0A 70          strb  r2, [r1]          ; E0F = 0
+0x5002A   DF F8 0C 10    ldr.w r1, [pc, #0xc]    ; r1 ← 池 @0x50038 = ROWPIN
+0x5002E   70 47          bx    lr                ; 返回扫描函数</code></pre>
+<table>
+<thead><tr><th>池地址</th><th>字节</th><th>值</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>0x50030</code></td><td><code>0F 1E 00 20</code></td><td><code>0x20001E0F</code></td><td>E0F</td></tr>
+<tr><td><code>0x50034</code></td><td><code>0F 1E 00 20</code></td><td><code>0x20001E0F</code></td><td>E0F</td></tr>
+<tr><td><code>0x50038</code></td><td><code>E0 CB 02 00</code></td><td><code>0x0002CBE0</code></td><td>ROWPIN</td></tr>
+</tbody>
+</table>
+<div class="note"><span class="t">要点：</span>只在 <code>r5 == 15</code> 时改写 E0F（避免中途清掉 Fn 状态）；返回前恢复 <code>r1 = ROWPIN</code>，因为原指令 <code>ldr r1,[pc,#0x370]</code> 被覆盖了，而后续 <code>ldrb r2,[r1,r5]</code> 依赖它——<b>等价性已逐字节核实</b>：该 <code>ldr</code> 的池槽值正是 <code>0x0002CBE0</code>，与 trampoline 硬编码常量一致，覆盖前后 <code>r1</code> 不变（补丁脚本启动时现场复核这一条）。</div>
+
+<h3>6.2　Hook B：2.4G 扫描行循环（@0x41252）— ★v8 关键改动点之一</h3>
+<h4>① 原始代码</h4>
+<pre><code>0x41252   1A F8 04 20    ldrb.w r2, [sl, r4]      ; 从扫描缓冲 sl 取 r4 行的列数据
+0x41256   08 FA 02 F1    lsl.w  r1, r8, r2
+0x4125A   D5 4A          ldr    r2, [pc, #0x354]
+0x4125C   11 60          str    r1, [r2]
+0x4125E   6E D0          beq    #0x4133e
+0x41260   00 23          movs   r3, #0
+0x41262   07 22          movs   r2, #7
+0x41264   4F EA 08 01    mov.w  r1, r8</code></pre>
+<p>调用点上下文（<code>r0</code> 已经是该行列位图）：</p>
+<pre><code>0x4124C   90 43          bics  r0, r2            ; r0 = local_84[r4] = 该行列位图
+0x4124E   41 F8 24 00    str.w r0, [r1, r4, lsl #2]
+0x41252   ← HOOK_B 插在这里</code></pre>
+<h4>② Patch 后代码</h4>
+<pre><code>0x41252   0E F0 55 FF    bl    #0x50100          ; ← 替换 ldrb.w r2,[sl,r4]
+0x41256   08 FA 02 F1    lsl.w  r1, r8, r2
+0x4125A   D5 4A          ldr    r2, [pc, #0x354]
+0x4125C   11 60          str    r1, [r2]
+0x4125E   6E D0          beq    #0x4133e
+0x41260   00 23          movs   r3, #0
+0x41262   07 22          movs   r2, #7
+0x41264   4F EA 08 01    mov.w  r1, r8</code></pre>
+<p>原始 16 进制：<code>1A F8 04 20 08 FA 02 F1 D5 4A 11 60 6E D0 00 23 07 22 4F EA 08 01</code><br>→ Patch 后：<code>0E F0 55 FF 08 FA 02 F1 D5 4A 11 60 6E D0 00 23 07 22 4F EA 08 01</code></p>
+<p>原 4 字节 <code>ldrb.w r2,[sl,r4]</code> 被替换为 <code>bl 0x50100</code>。Trampoline B 在 <code>.restore</code> 处<b>精确复原</b>这条 <code>ldrb.w r2,[sl,r4]</code> 与标志位后再 <code>bx lr</code>，故返回后 r2 与 Z 位与原始一致，后续指令不受影响。</p>
+<h4>③ Trampoline B（@0x50100，72 字节）— ★v8 新增 r7 刷新</h4>
+<pre><code>0x50100   0F 2C          cmp   r4, #0xf          ; 仅当扫描到 row15 才处理
+0x50102   14 D1          bne   #0x5012e          ; .restore
+0x50104   10 F0 01 0F    tst.w r0, #1            ; 当前行列位图 bit0（col0 = r15c0）
+0x50108   0D D0          beq   #0x50126          ; bit0=0 → .zero
+0x5010A   01 22          movs  r2, #1
+0x5010C   DF F8 2C 10    ldr.w r1, [pc, #0x2c]   ; r1 ← 池 @0x5013C = E0F
+0x50110   0A 70          strb  r2, [r1]          ; E0F = 1（矩阵 Fn 按下）
+0x50112   20 F0 01 00    bic   r0, r0, #1        ; ★v6 修正①：清【寄存器 r0】（0x4126C 逐位测试用的就是 r0）
+0x50116   09 A9          add   r1, sp, #0x24     ; r1 ← local_84[15]
+0x50118   51 F8 24 20    ldr.w r2, [r1, r4, lsl #2]
+0x5011C   22 F0 01 02    bic   r2, r2, #1        ; 清 local_84[15] 的 bit0
+0x50120   41 F8 24 20    str.w r2, [r1, r4, lsl #2]
+0x50124   03 E0          b     #0x5012e
+0x50126   00 22          movs  r2, #0            ; .zero
+0x50128   DF F8 14 10    ldr.w r1, [pc, #0x14]   ; r1 ← 池 @0x50140 = E0F
+0x5012C   0A 70          strb  r2, [r1]          ; E0F = 0（矩阵 Fn 松开）
+0x5012E   DF F8 14 70    ldr.w r7, [pc, #0x14]   ; ★★v8 新增：r7 ← 池 @0x50144 = E0F
+0x50132   3F 78          ldrb  r7, [r7]          ; ★★v8 新增：r7 = 当前 E0F（每个 row 都刷新）
+0x50134   1A F8 04 20    ldrb.w r2, [sl, r4]     ; 复原原指令 ldrb.w r2,[sl,r4]
+0x50138   00 28          cmp   r0, #0            ; ★v6 修正②：复原标志位（0x4125E 的 beq 依赖 0x4124C bics 的 Z）
+0x5013A   70 47          bx    lr                ; 返回扫描函数</code></pre>
+<table>
+<thead><tr><th>池地址</th><th>字节</th><th>值</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>0x5013C</code></td><td><code>0F 1E 00 20</code></td><td><code>0x20001E0F</code></td><td>E0F（写 E0F=1 用）</td></tr>
+<tr><td><code>0x50140</code></td><td><code>0F 1E 00 20</code></td><td><code>0x20001E0F</code></td><td>E0F（写 E0F=0 用）</td></tr>
+<tr><td><code>0x50144</code></td><td><code>0F 1E 00 20</code></td><td><code>0x20001E0F</code></td><td>E0F（★v8：刷新 r7 用）</td></tr>
+</tbody>
+</table>
+<div class="okbox"><span class="t">★v8 的两条新增指令就是全部改动：</span><code>0x5012E</code> / <code>0x50132</code>。它们位于 <code>.restore</code>（所有行都会走到的公共出口），因此：
+<ul>
+<li><b>每个 row 都会把 <code>r7</code> 刷新成当前 E0F</b>；</li>
+<li>row15 那次迭代里，E0F 刚被写成本轮结果，紧接着 <code>r7</code> 就被刷新 → 行循环后的 <code>0x413D0</code> 拿到本轮值；</li>
+<li><code>r7</code> 原本在 v7 里由 HOOK_C 一次性赋值，v8 删掉了那次赋值，改为逐 row 刷新，<b>r7 的语义从「本轮开始时的快照」变成「当前 E0F」</b>。</li>
+</ul>
+</div>
+<div class="warn"><span class="t">v6 必须注意的两处修正</span>（v5 原始版的推理盲区，v5.1 已修，v6/v7/v8 沿用修好后的结构）：2.4G 路径在钩子之后<b>逐位测试用的是寄存器 <code>r0</code></b>（<code>0x4126C: tst.w r0, ip</code>，不是 <code>local_84[r4]</code>）；且 <code>0x4125E</code> 的 <code>beq</code> 依赖 <code>0x4124C bics</code> 产生的 Z 位。<br>
+1. <b>必须清寄存器 r0 的 bit0</b>：v5 只改了 <code>local_84[r4]</code>，对 2.4G 路径无效。v6 起同时清 <code>r0</code> 与 <code>local_84[r4]</code>。<br>
+2. <b>必须复原标志位</b>：钩子里的 <code>cmp</code>/<code>tst</code>/<code>movs</code> 都会改写 Z，返回前用 <code>cmp r0,#0</code> 复原，语义与原 <code>bics r0,r2</code> 完全一致。</div>
+
+<h3>6.3　Hook C：2.4G 的 P0.6 判定与伪键注入（@0x411C6）— ★v8 关键改动点之二</h3>
+<h4>① 原始代码（18 字节整段替换）</h4>
+<pre><code>0x411C6   F7 48          ldr    r0, [pc, #0x3dc]  ; r0 ← P0.IN(0x50000510)
+0x411C8   00 68          ldr    r0, [r0]          ; r0 = P0.IN 原始电平
+0x411CA   41 06          lsls   r1, r0, #0x19     ; bit6(P0.6) → bit31
+0x411CC   04 D4          bmi    #0x411d8          ; P0.6 为高（松开）→ 跳过
+0x411CE   01 27          movs   r7, #1            ; P0.6 按下：r7 = 1
+0x411D0   DF 21          movs   r1, #0xdf         ; Fn 伪键码 0xDF
+0x411D2   8D F8 10 10    strb.w r1, [sp, #0x10]  ; local_98[0] = 0xDF
+0x411D6   3D 46          mov    r5, r7            ; uVar11 = r7
+0x411D8   00 24          movs   r4, #0            ; ← 段外，未被替换</code></pre>
+<p><b>原始逻辑只认 P0.6，不认矩阵键</b>：P0.6 拉低（按下）时写伪键码 0xDF 并把 <code>r7</code> 置 1。</p>
+<h4>② Patch 后代码</h4>
+<pre><code>0x411C6   0F F0 1B F8    bl    #0x50200          ; ← 替换 18 字节
+0x411CA   00 BF          nop
+0x411CC   00 BF          nop
+0x411CE   00 BF          nop
+0x411D0   00 BF          nop
+0x411D2   00 BF          nop
+0x411D4   00 BF          nop
+0x411D6   00 BF          nop
+0x411D8   00 24          movs   r4, #0            ; ← 行循环计数器归零（段外，保留）
+0x411DA   F2 49          ldr    r1, [pc, #0x3c8]
+0x411DC   F2 48          ldr    r0, [pc, #0x3c8]</code></pre>
+<p>原始 16 进制：<code>F7 48 00 68 41 06 04 D4 01 27 DF 21 8D F8 10 10 3D 46</code><br>→ Patch 后：<code>0F F0 1B F8 00 BF 00 BF 00 BF 00 BF 00 BF 00 BF 00 BF 00 BF</code></p>
+<h4>③ Trampoline C（@0x50200，28 字节）— ★v8 删除了 r7 赋值</h4>
+<pre><code>0x50200   DF F8 14 00    ldr.w r0, [pc, #0x14]   ; r0 ← 池 @0x50218 = E0F2
+0x50204   00 78          ldrb  r0, [r0]          ; r0 = E0F2（P0.6 去抖后状态）
+0x50206   01 28          cmp   r0, #1            ; 去抖后按下？
+0x50208   04 D1          bne   #0x50214          ; 否 → .up
+0x5020A   01 25          movs  r5, #1            ; uVar11 = 1（要注入伪键）
+0x5020C   E0 21          movs  r1, #0xe0         ; 伪 Left Ctrl 键码 0xE0
+0x5020E   8D F8 10 10    strb.w r1, [sp, #0x10]  ; local_98[0] = 0xE0
+0x50212   00 E0          b     #0x50216
+0x50214   00 25          movs  r5, #0            ; .up：uVar11 = 0
+0x50216   70 47          bx    lr</code></pre>
+<table>
+<thead><tr><th>池地址</th><th>字节</th><th>值</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>0x50218</code></td><td><code>00 48 00 20</code></td><td><code>0x20004800</code></td><td>E0F2（P0.6 去抖后状态）</td></tr>
+</tbody>
+</table>
+<p><b>★v8 相对 v7 的差异</b>：v7 的 trampoline C 开头还有三步——</p>
+<pre><code>0x50200   DF F8 1C 00    ldr.w r0, [pc, #0x1c]   ; r0 ← &amp;E0F      ┐
+0x50204   00 78          ldrb  r0, [r0]          ; r0 = E0F      │ v7 独有：
+0x50206   07 46          mov   r7, r0            ; r7 = E0F      │ ★行循环前冻结快照
+0x50208   DF F8 18 00    ldr.w r0, [pc, #0x18]   ; r0 ← &amp;E0F2     ┘</code></pre>
+<p>v8 删掉这三步（−8 字节）与随之无用的 E0F 池项（−4 字节），trampoline C 由 40 字节缩到 <b>28 字节</b>。</p>
+<div class="note"><span class="t">为什么可以安全删除：</span>按 §3.3.1 的枚举，<code>r7</code> 在 2.4G 扫描函数体内共有 <b>3 处写入</b>（<code>0x4119C</code> 序言 <code>mov r7,fp</code> → 初值 0；<code>0x411CE</code> HOOK_C 的 <code>movs r7,#1</code>；<code>0x413AE</code> 尾声 <code>pop</code> 恢复）与 <b>2 处消费</b>（<code>0x41286</code>、<code>0x413D0</code> 两处 <code>cbz r7</code>）。
+<ul>
+<li>序言那次赋值在<b>行循环之前</b>、尾声那次在<b>行循环之后</b>，都不落在两个消费点之前；</li>
+<li>唯一落在「行循环之前、且会影响消费点」的写入，就是 v7 trampoline C 的 <code>mov r7,r0</code>；</li>
+<li>v8 删掉它，改由 trampoline B 在<b>行循环内</b>每 row 执行一次 <code>r7 = E0F</code>，且 trampoline B 位于 <code>0x41252</code>、<b>早于</b> <code>0x41286</code>。</li>
+</ul>
+因此两个消费点处的 <code>r7</code> 在 v8 中<b>始终是已定义且新鲜的</b>（本轮 E0F），不会产生未定义行为。</div>
+
+<h3>6.4　Hook D：BT 扫描里的内联 P0.IN 读（@0x1EB74）— v8 未改</h3>
+<h4>① 原始代码（22 字节整段替换）</h4>
+<pre><code>0x1EB74   06 20          movs  r0, #6
+0x1EB76   00 BF          nop
+0x1EB78   4F F0 A0 42    mov.w r2, #0x50000000
+0x1EB7C   11 46          mov   r1, r2
+0x1EB7E   00 BF          nop
+0x1EB80   D1 F8 10 25    ldr.w r2, [r1, #0x510]   ; r2 = P0.IN
+0x1EB84   C2 40          lsrs  r2, r0             ; r2 &gt;&gt;= 6
+0x1EB86   02 F0 01 02    and   r2, r2, #1         ; r2 = P0.6 位
+0x1EB88   00 BF          nop
+0x1EB8A   BA B9          cbnz  r2, #0x1ebbc       ; ← 消费点（段外，保留）</code></pre>
+<h4>② Patch 后代码</h4>
+<pre><code>0x1EB74   31 F0 C4 FB    bl    #0x50300          ; ← 替换 22 字节
+0x1EB78   00 BF          nop
+0x1EB7A   00 BF          nop
+0x1EB7C   00 BF          nop
+0x1EB7E   00 BF          nop
+0x1EB80   00 BF          nop
+0x1EB82   00 BF          nop
+0x1EB84   00 BF          nop
+0x1EB86   00 BF          nop
+0x1EB88   00 BF          nop
+0x1EB8A   BA B9          cbnz  r2, #0x1ebbc       ; ← 消费点保留
+0x1EB8C   53 48          ldr    r0, [pc, #0x14c]</code></pre>
+<p>原始 16 进制：<code>06 20 00 BF 4F F0 A0 42 11 46 00 BF D1 F8 10 25 C2 40 02 F0 01 02 00 BF</code><br>→ Patch 后：<code>31 F0 C4 FB</code> + <code>00 BF</code>×9（<code>BA B9</code> 与 <code>0x1EB8C</code> 之后均为段外，保留）</p>
+<h4>③ Trampoline D（@0x50300，24 字节）</h4>
+<pre><code>0x50300   DF F8 10 20    ldr.w r2, [pc, #0x10]   ; r2 ← 池 @0x50314 = E0F
+0x50304   12 78          ldrb  r2, [r2]          ; r2 = E0F（矩阵 Fn）
+0x50306   00 2A          cmp   r2, #0
+0x50308   01 D1          bne   #0x5030e          ; E0F != 0 → .held
+0x5030A   01 22          movs  r2, #1            ; E0F == 0 → r2 = 1（= 原「P0.6 未按下」语义）
+0x5030C   70 47          bx    lr
+0x5030E   00 22          movs  r2, #0            ; .held：Fn 按下 → r2 = 0
+0x50310   70 47          bx    lr</code></pre>
+<table>
+<thead><tr><th>池地址</th><th>字节</th><th>值</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>0x50314</code></td><td><code>0F 1E 00 20</code></td><td><code>0x20001E0F</code></td><td>E0F</td></tr>
+</tbody>
+</table>
+<p><b>语义等价性</b>：原代码算出 <code>r2 = (P0.IN &gt;&gt; 6) &amp; 1</code>，即 <b>P0.6 未按下 → 1、P0.6 按下 → 0</b>；trampoline D 算出 <code>r2 = (E0F == 0) ? 1 : 0</code>，即 <b>矩阵 Fn 未按下 → 1、Fn 按下 → 0</b>。两者极性一致，因此消费点 <code>0x1EB8A cbnz r2</code> 的行为被完整保留。</p>
+<div class="note"><span class="t">BT 路径结构上不存在 v7 的滞后问题：</span>HOOK_D 在<b>使用点</b>即时读 E0F，且 E0F 的写入点 HOOK_A（<code>0x1E4E4</code>）地址在前、读取点 HOOK_D（<code>0x1EB74</code>）在后，同处一次扫描流程内 → BT 读到的就是本轮的 Fn 状态。v8 因此<b>不改动 BT 任何字节</b>。</div>
+
+<h3>6.5　Hook E：BT HID 报告组装的修饰字节清零（@0x23A76）— v8 未改</h3>
+<h4>① 原始代码</h4>
+<pre><code>0x23A76   00 23          movs  r3, #0
+0x23A78   0B 70          strb  r3, [r1]           ; *param_1 = 0（修饰字节清零）
+0x23A7A   CB 71          strb  r3, [r1, #7]       ; ← 段外，依赖 r3 == 0
+0x23A7C   00 20          movs  r0, #0
+0x23A7E   1D E0          b     #0x23abc</code></pre>
+<h4>② Patch 后代码</h4>
+<pre><code>0x23A76   2C F0 C3 FC    bl    #0x50400          ; ← 替换 movs+strb
+0x23A7A   CB 71          strb  r3, [r1, #7]       ; ← 保留（r3 已被 trampoline 复原为 0）
+0x23A7C   00 20          movs  r0, #0
+0x23A7E   1D E0          b     #0x23abc</code></pre>
+<p>原始 16 进制：<code>00 23 0B 70</code> → Patch 后：<code>2C F0 C3 FC</code></p>
+<h4>③ Trampoline E（@0x50400，28 字节）</h4>
+<pre><code>0x50400   00 23          movs  r3, #0
+0x50402   0B 70          strb  r3, [r1]          ; *param_1 = 0（先清零）
+0x50404   DF F8 10 00    ldr.w r0, [pc, #0x10]   ; r0 ← 池 @0x50418 = E0F2
+0x50408   00 78          ldrb  r0, [r0]          ; r0 = E0F2（P0.6 去抖后）
+0x5040A   01 28          cmp   r0, #1
+0x5040C   01 D1          bne   #0x50412          ; 未按下 → .fin
+0x5040E   01 23          movs  r3, #1
+0x50410   0B 70          strb  r3, [r1]          ; *param_1 = 1（置 Left Ctrl 位）
+0x50412   00 23          movs  r3, #0            ; ★复原 r3 = 0（0x23A7A 的 strb r3,[r1,#7] 依赖）
+0x50414   70 47          bx    lr</code></pre>
+<table>
+<thead><tr><th>池地址</th><th>字节</th><th>值</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>0x50418</code></td><td><code>00 48 00 20</code></td><td><code>0x20004800</code></td><td>E0F2</td></tr>
+</tbody>
+</table>
+<div class="note"><span class="t">v7 的去抖生效点：</span>读的是 E0F2（去抖后状态）而不是原始 P0.IN，机械按键抖动不会造成 Left Ctrl 误触发。v8 未改此处。</div>
+
+<h2 id="s7">七、v7 → v8 的精确差异</h2>
+
+<h3>7.1　逐字节差异</h3>
+<table>
+<thead><tr><th>区段</th><th>v7</th><th>v8</th><th>差异</th></tr></thead>
+<tbody>
+<tr><td>数据补丁（7 处）</td><td>同</td><td>同</td><td>0</td></tr>
+<tr><td>HOOK_A / HOOK_D / HOOK_E 指令</td><td>同</td><td>同</td><td>0</td></tr>
+<tr><td>Trampoline A（0x50000）</td><td>60B</td><td>60B</td><td>0</td></tr>
+<tr><td><b>Trampoline B（0x50100）</b></td><td>64B</td><td><b>72B</b></td><td><b>+8B</b>（新增 <code>ldr.w r7,[pc]</code> + <code>ldrb r7,[r7]</code> + 1 个 E0F 池项）</td></tr>
+<tr><td><b>Trampoline C（0x50200）</b></td><td>40B</td><td><b>28B</b></td><td><b>−12B</b>（删除 <code>ldr.w r0,[pc]</code> + <code>ldrb r0,[r0]</code> + <code>mov r7,r0</code> + 1 个 E0F 池项）</td></tr>
+<tr><td>Trampoline D（0x50300）</td><td>24B</td><td>24B</td><td>0</td></tr>
+<tr><td>Trampoline E（0x50400）</td><td>28B</td><td>28B</td><td>0</td></tr>
+<tr><td><b>固件总改动</b></td><td>274B / 18 区域</td><td><b>270B / 18 区域</b></td><td><b>−4B</b></td></tr>
+</tbody>
+</table>
+
+<h3>7.2　语义差异一句话总结</h3>
+<div class="okbox">
+<p style="margin:4px 0"><b>v7</b>：2.4G 的 <code>r7</code> = 「进入行循环那一刻的 E0F」（上一轮快照）。</p>
+<p style="margin:4px 0"><b>v8</b>：2.4G 的 <code>r7</code> = 「当前 E0F」（每 row 刷新，row15 那次即本轮最新）。</p>
+<p style="margin:4px 0"><b>BT</b>：始终 = 「当前 E0F」（使用点即时读）—— v8 未动。</p>
+</div>
+
+<h3>7.3　v8 固件改动区间全表（18 段）</h3>
+<table>
+<thead><tr><th>区间</th><th>长度</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>0x01B8A0</code>–<code>0x01B8A1</code></td><td>2</td><td>池槽 E0F → E0F2</td></tr>
+<tr><td><code>0x01E4E4</code>–<code>0x01E4E7</code></td><td>4</td><td>HOOK_A：bl 0x50000</td></tr>
+<tr><td><code>0x01E84C</code></td><td>1</td><td>BT 行掩码 row12</td></tr>
+<tr><td><code>0x01EB74</code>–<code>0x01EB7D</code></td><td>10</td><td>HOOK_D 前半</td></tr>
+<tr><td><code>0x01EB80</code>–<code>0x01EB89</code></td><td>10</td><td>HOOK_D 后半</td></tr>
+<tr><td><code>0x023A76</code>–<code>0x023A79</code></td><td>4</td><td>HOOK_E：bl 0x50400</td></tr>
+<tr><td><code>0x02CC54</code></td><td>1</td><td>KEYTBL_BT[100]</td></tr>
+<tr><td><code>0x02CC68</code></td><td>1</td><td>KEYTBL_BT[120]</td></tr>
+<tr><td><code>0x0411C6</code>–<code>0x0411D7</code></td><td>18</td><td>HOOK_C：bl 0x50200 + 7 nop</td></tr>
+<tr><td><code>0x041252</code>–<code>0x041255</code></td><td>4</td><td>HOOK_B：bl 0x50100</td></tr>
+<tr><td><code>0x04A6B2</code></td><td>1</td><td>2.4G 行掩码 row12</td></tr>
+<tr><td><code>0x04A75E</code></td><td>1</td><td>KEYTBL_G[100]</td></tr>
+<tr><td><code>0x04A772</code></td><td>1</td><td>KEYTBL_G[120]</td></tr>
+<tr><td><code>0x050000</code>–<code>0x05003B</code></td><td>60</td><td>Trampoline A</td></tr>
+<tr><td><code>0x050100</code>–<code>0x050147</code></td><td>72</td><td>Trampoline B（★v8）</td></tr>
+<tr><td><code>0x050200</code>–<code>0x05021B</code></td><td>28</td><td>Trampoline C（★v8）</td></tr>
+<tr><td><code>0x050300</code>–<code>0x050317</code></td><td>24</td><td>Trampoline D</td></tr>
+<tr><td><code>0x050400</code>–<code>0x05041B</code></td><td>28</td><td>Trampoline E</td></tr>
+</tbody>
+</table>
+<p>全部落在 <code>0x50000</code>–<code>0x60000</code> 擦除空洞（静态不可达）；向量表 Reset_Handler（<code>0x00000A81</code>）不变。</p>
+
+<h2 id="s8">八、命令行用法</h2>
+
+<h3>8.1　补丁脚本</h3>
+<pre><code># 干跑：只做检查与报告，不写盘
+python fn_swap_debounce_inline_patch.py &lt;in.bin&gt;
+
+# 正式打补丁（必须显式指定 --out）
+python fn_swap_debounce_inline_patch.py &lt;in.bin&gt; --out KC-1957_88_v8.bin --apply
+
+# 键盘掩码与预期值不符时，按「实际值 + 位操作」强制修补
+python fn_swap_debounce_inline_patch.py &lt;in.bin&gt; --out KC-1957_88_v8.bin --force-mask --apply</code></pre>
+<div class="warn"><span class="t">⚠ <code>--out</code> 必须显式指定：</span>脚本的 <code>--out</code> 默认值等于输入路径，若省略会直接覆盖输入固件。本工程的标准调用固定为 <code>..\v7_p06_debounce\KC-1957_88_orig.bin --out KC-1957_88_v8.bin --apply</code>。<br><br>
+<code>--force-mask</code> 只放宽<b>行掩码</b>的字节校验（改为「实际值 + 位操作」），<b>不</b>放宽键码表与钩子原字节的校验；钩子原字节不符一律中止。</div>
+
+<h3>8.2　独立验证脚本</h3>
+<pre><code>python verify_v8.py
+# 或显式指定
+python verify_v8.py --orig ..\v7_p06_debounce\KC-1957_88_orig.bin --v8 KC-1957_88_v8.bin</code></pre>
+
+<h3>8.3　Windows 本机可复现命令（PowerShell）</h3>
+<pre><code>$env:PYTHONPATH = "C:/Users/older/AppData/Roaming/Python/Python314/site-packages"
+$STORE = "C:/Users/older/AppData/Local/Microsoft/WindowsApps/PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0/python.exe"
+
+Set-Location "C:\UserApps\UserDevices\KBFW\KC1957\Dev\versions\v8_e0f_inline"
+
+# 1) 生成 v8 固件
+&amp; $STORE fn_swap_debounce_inline_patch.py ..\v7_p06_debounce\KC-1957_88_orig.bin --out KC-1957_88_v8.bin --apply
+
+# 2) 独立校验
+&amp; $STORE verify_v8.py</code></pre>
+
+<h2 id="s9">九、验证</h2>
+
+<h3>9.1　独立校验 <code>verify_v8.py</code>（capstone 反汇编 + 字节比对，<b>不依赖 keystone 汇编器</b>）</h3>
+<table>
+<thead><tr><th>#</th><th>检查项</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><s>原始固件 SHA-256 == 档案值</s> → <b>已改为仅参考打印、不参与判定</b>（每台设备 Dump 结果本就不同）；「确实基于原始固件」改由第 2/3 项的<b>结构性证明</b>给出</td><td>参考</td></tr>
+<tr><td>2</td><td>v8 与原始固件的差异区间 == 预期 18 段</td><td class="ok">OK</td></tr>
+<tr><td>3</td><td>其余 524018 字节与原始固件逐字节相同</td><td class="ok">OK</td></tr>
+<tr><td>4</td><td>HOOK_A <code>bl</code> → <code>0x50000</code></td><td class="ok">OK</td></tr>
+<tr><td>5</td><td>HOOK_B <code>bl</code> → <code>0x50100</code></td><td class="ok">OK</td></tr>
+<tr><td>6</td><td>HOOK_C <code>bl</code> → <code>0x50200</code></td><td class="ok">OK</td></tr>
+<tr><td>7</td><td>HOOK_D <code>bl</code> → <code>0x50300</code></td><td class="ok">OK</td></tr>
+<tr><td>8</td><td>HOOK_E <code>bl</code> → <code>0x50400</code></td><td class="ok">OK</td></tr>
+<tr><td>9</td><td>HOOK_C 余下 14 字节 / HOOK_D 余下 18 字节为 nop 填充</td><td class="ok">OK</td></tr>
+<tr><td>10</td><td>洞穴 B 提取出 <code>cmp r4,#15</code>（row_idx）与 <code>tst r0,#1</code>（bit）</td><td class="ok">OK</td></tr>
+<tr><td>11</td><td>洞穴 B 存在 3 处 E0F 字面量</td><td class="ok">OK</td></tr>
+<tr><td>12</td><td>洞穴 B <code>.restore</code> 处存在 <code>ldr.w r7,[pc]</code> + <code>ldrb r7,[r7]</code> 且字面量 == E0F</td><td class="ok">OK</td></tr>
+<tr><td>13</td><td>洞穴 B 末尾复原 <code>ldrb.w r2,[sl,r4]</code> ; <code>cmp r0,#0</code> ; <code>bx lr</code></td><td class="ok">OK</td></tr>
+<tr><td>14</td><td>洞穴 C 读 E0F2(<code>0x20004800</code>)</td><td class="ok">OK</td></tr>
+<tr><td>15</td><td>洞穴 D 读 E0F(<code>0x20001E0F</code>)</td><td class="ok">OK</td></tr>
+<tr><td>16</td><td>洞穴 E 读 E0F2(<code>0x20004800</code>)</td><td class="ok">OK</td></tr>
+<tr><td>17</td><td>KEYTBL_BT[100] == 0xE0 / KEYTBL_BT[120] == 0x00</td><td class="ok">OK</td></tr>
+<tr><td>18</td><td>KEYTBL_G[100] == 0xE0 / KEYTBL_G[120] == 0x00</td><td class="ok">OK</td></tr>
+<tr><td>19</td><td>BT 行掩码 == 原值 | bit4（0xF7）</td><td class="ok">OK</td></tr>
+<tr><td>20</td><td>2.4G 行掩码 == 原值 &amp; ~bit4（0x0C）</td><td class="ok">OK</td></tr>
+<tr><td>21</td><td>池槽 <code>0x1B8A0</code> == E0F2</td><td class="ok">OK</td></tr>
+<tr><td>22</td><td>行循环内 <code>0x41286</code> 仍是 <code>cbz r7</code></td><td class="ok">OK</td></tr>
+<tr><td>23</td><td>行循环后 <code>0x413D0</code> 仍是 <code>cbz r7</code></td><td class="ok">OK</td></tr>
+<tr><td>24–27</td><td><b>E0F 新鲜度仿真 4 组用例</b>（见 9.2）</td><td class="ok">全部通过</td></tr>
+</tbody>
+</table>
+
+<h3>9.2　E0F 新鲜度仿真（v8 的核心验证）</h3>
+<p>以<b>从二进制反汇编中提取</b>的 <code>row_idx = 15</code>、<code>bit = 1</code> 仿真整轮扫描，断言行循环后 <code>0x413D0</code> 读到的 <code>r7</code> 等于<b>本轮最新</b> E0F：</p>
+<table>
+<thead><tr><th>上轮 E0F</th><th>本轮 row15 的 bit0</th><th>循环后 r7</th><th>期望</th><th>结论</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>1</td><td>1</td><td>1</td><td class="ok">OK（Fn 本轮按下）</td></tr>
+<tr><td>1</td><td>0</td><td>0</td><td>0</td><td class="ok">OK（Fn 本轮松开）</td></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>0</td><td class="ok">OK</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td class="ok">OK</td></tr>
+</tbody>
+</table>
+<p>→ 行循环后读到的 <code>r7</code> <b>始终</b>等于本轮最新 E0F，<span class="ok">零滞后</span>，与 BT 路径对齐。</p>
+
+<h3>9.3　补丁脚本内置的启动时自检</h3>
+<p>补丁脚本在写盘前会现场复核（不通过即中止，不产出静默失效的固件）：</p>
+<ol>
+<li><b>E0F2 选址安全</b>：保守扫描全固件的 RAM 变量引用，确认 <code>0x20004800</code>–<code>0x200048FF</code> 窗口内引用数为 0；</li>
+<li><b>HOOK_A 池槽等价性</b>：现场解析 HOOK_A 的 <code>ldr r1,[pc]</code> 目标槽值，确认等于 <code>ROWPIN(0x2CBE0)</code>；</li>
+<li><b>row15 bit0 未被屏蔽</b>：BT row15 = <code>0x41</code>（bit0 = 1）、2.4G row15 = <code>0xBE</code>（bit0 = 0）——两条路径下 r15c0 都参与扫描，否则「Fn 将永不触发」；</li>
+<li><b>★v8 专属</b>：确认 <code>0x41286</code>（行循环内）与 <code>0x413D0</code>（行循环后）<b>都</b>是 <code>cbz r7</code>——这是 v8 设计的前提，一旦目标固件结构不同即中止；</li>
+<li><b>原字节安全断言</b>：7 处钩子/键码表/池槽的原始字节必须逐字节吻合（<code>--force</code> 可放宽钩子项，<code>--force-mask</code> 可放宽掩码项；池槽始终为硬约束）；</li>
+<li><b>代码空洞校验</b>：5 个 trampoline 落点 <code>0x50000</code>/<code>0x50100</code>/<code>0x50200</code>/<code>0x50300</code>/<code>0x50400</code> 各 0x200 字节必须全为 <code>0xFF</code>。</li>
+</ol>
+
+<h3>9.4　文件级校验（SHA-256）</h3>
+<div class="note"><span class="t">⚠️ 下表是「参考机」的开发环境产物指纹，不能作为跨设备的验收标准。</span>
+每台设备 Dump 出来的固件本来就不完全一样（蓝牙名称 <code>@0x21228</code>、2.4G 无线 ID <code>@0x78054</code> 等为设备独有内容），因此<b>原厂固件与补丁产物的 SHA-256 都因机而异</b>。判断补丁是否正确，请以 <b>9.1 的结构性检查</b>（差异区间精确匹配、其余 524018 字节逐字节未变）为准。
+本表的用途是「<b>同一台设备</b>重复 Dump 并打补丁时，结果应当一致」。</div>
+<table>
+<thead><tr><th>文件（参考机）</th><th>SHA-256</th></tr></thead>
+<tbody>
+<tr><td><code>KC-1957_88_orig.bin</code></td><td><code>57df656c947b196f085ff448ff39ea2ed21fe79fb9532a4ee7c850a059da66f7</code></td></tr>
+<tr><td><code>KC-1957_88_v8.bin</code></td><td><code>1baaef2dab6631da880bc2c81ebe762f9dbca374152c0e3c13e3eb0e7bc8a22f</code></td></tr>
+</tbody>
+</table>
+
+<h2 id="s10">十、已知限制与风险</h2>
+
+<h3>10.0　两条使用前提（务必先看）</h3>
+
+<div class="note"><span class="t">① 硬件版本：必须使用 V2 及以上硬件 Dump 出来的固件。</span>
+本补丁的注入地址、行掩码位、键位表偏移全部基于 <b>V2+ 硬件</b>的固件布局逆向得出。V1 等低版本硬件的固件布局不同，这些地址与假设<b>不成立</b>，强行打补丁会得到行为不可预期甚至变砖的固件。
+<ul>
+<li>若你的设备是<b>低版本</b>：本补丁不适用，<b>不要尝试</b>；需<b>自行向持有 V2+ 设备固件的人索取</b>一份 V2+ 固件（512 KB 主 Flash 文件）再打补丁。</li>
+<li><b>如何确认</b>：直接对 Dump 出来的固件<b>干跑</b>补丁脚本（<code>python fn_swap_debounce_inline_patch.py &lt;固件&gt;</code>）。干跑会检查键位表特征、ROWPIN 表、行掩码位、钩子代码点、代码空洞是否全 <code>0xFF</code>、新变量选址窗口是否冲突等。<b>V2+ 固件会顺利通过全部检查；V1 固件会在某一项上明确中止并说明原因。</b> 干跑不写盘，对固件无任何影响。</li>
+</ul></div>
+
+<div class="note"><span class="t">② 不要用 SHA-256 判断固件或补丁对不对。</span>
+每台设备 Dump 出来的固件<b>本来就不完全一样</b> —— 512 KB 主 Flash 中含设备独有内容（蓝牙名称 <code>@0x21228</code>、2.4G 无线 ID <code>@0x78054</code>）。因此<b>原厂固件与补丁产物的 SHA-256 都因机而异</b>。
+<br><br>
+实测：在两台设备上跑同一套补丁，<b>两个补丁产物之间仅 18 字节不同，且全部落在上述设备独有数据区</b> —— 即<b>改造逻辑在任意设备上逐字节一致</b>，变的只有设备自己的身份数据。
+<br><br>
+<b>唯一可靠的判据</b>是本脚本的<b>结构性检查</b>（见 9.1 第 2/3 项：差异区间精确等于预期 18 段、其余 524018 字节逐字节未变）与<b>补丁脚本的前置检查</b>。<code>verify_v8.py</code> 打印的哈希<b>仅作参考，不参与通过判定</b>。</div>
+
+<h3>10.1　矩阵式 Fn 的固有 1 周期（无法消除，也不需要消除）</h3>
+<p>矩阵 r15c0 的 E0F 必须等到 row15 才最终确定，而 row15 是最后一行。因此相对「GPIO 直读式 P0.6 零滞后」，矩阵 Fn 天然存在最多 1 个扫描周期的滞后。v8 消除的是<b>额外的</b>那一拍（2.4G 用上一轮的值），而不是这一拍。</p>
+<p><b>若要求 P0.6 与矩阵 Fn 完全同拍</b>，只能把 Fn 改为 GPIO 直读（放弃 SL410K 盘体适配）——与 v5 的改造动因冲突，故不做。</p>
+
+<h3>10.2　2.4G 路径行循环内的 Fn 次级行为仍可能用上一轮值</h3>
+<p><code>0x41286 cbz r7</code>（行循环内）位于<b>列循环</b>之中，r4 ∈ 0..14 时 row15 尚未扫到，E0F 还是上一轮的值。这是矩阵式 Fn 的固有性质，<b>BT 路径同样如此</b>（同一份矩阵数据、同样的 row15 依赖）。v8 做到的是让两条路径<b>行为一致</b>，而不是让行循环内也变成零滞后。</p>
+
+<h3>10.3　实机验证建议</h3>
+<p>v8 相对 v7 只改变「2.4G 通道 Fn 状态的取样时刻」，<b>不改变任何键码输出</b>。</p>
+<table>
+<thead><tr><th>场景</th><th>预期</th></tr></thead>
+<tbody>
+<tr><td>2.4G 通道下按 Fn 键，观察 HID 报告修饰位</td><td>Fn 层激活时机比 v7 提前不超过 1 个扫描周期；不应出现「Fn 粘住」或「Fn 层不收起」</td></tr>
+<tr><td>2.4G 通道下快速点按 Fn</td><td>v7 会在松手后多残留一拍 Fn 状态；v8 不应再有残留</td></tr>
+<tr><td>2.4G 与 BT 通道交替使用 Fn</td><td>两条通道的 Fn 表现应一致（v7 下 2.4G 会比 BT 慢一拍）</td></tr>
+<tr><td>组合键（Fn + 其它键）在 2.4G 下</td><td>展开/收起应更贴合按键时序</td></tr>
+<tr><td>BT 通道全部功能</td><td><b>应与 v7 完全一致</b>（v8 未改 BT 任何字节）</td></tr>
+</tbody>
+</table>
+<div class="note"><span class="t">回退方案：</span>建议先在 2.4G 通道验证；若出现异常，可直接回刷 v7（<code>KC-1957_88_v7.bin</code>，SHA-256 <code>3f68e61b6f24c8f763958de9fe1fa88574a12b583aa3febdecaa1094dc97cdc1</code>）——两版差异仅 4 字节，回退成本极低。</div>
+
+<h3>10.4　本版未做的事</h3>
+<ul>
+<li>未改动 BT 路径任何字节（无必要）；</li>
+<li>未新增任何 RAM 变量、钩子或去抖逻辑（E0F2 沿用 v6 引入的现成变量）；</li>
+<li>未改动 Fn 层激活计算（<code>0x20002109</code> = E0F &amp;&amp; D7B）；</li>
+<li>未做实机回归（本工程当前只有离线反汇编 + 字节级验证能力）。</li>
+</ul>
+
+<h2 id="s11">十一、踩坑与逐步确认（正确性保障）</h2>
+
+<h3>11.1　v8 排障：keystone 初始化报 <code>KS_ERR_ARCH</code></h3>
+<p><b>现象</b>：补丁脚本启动即 <code>keystone.keystone.KsError: Invalid/unsupported architecture (KS_ERR_ARCH)</code>。</p>
+<p><b>根因</b>：脚本写成 <code>Ks(CS_ARCH_ARM, KS_MODE_THUMB)</code>——<code>CS_ARCH_ARM</code> 是 <b>capstone</b> 的常量（值 <b>0</b>），而 <b>keystone</b> 里 0 是 <code>KS_ARCH_INVALID</code>，<code>KS_ARCH_ARM</code> 的值是 <b>1</b>。两个库的架构枚举不是同一套编号；<code>CS_MODE_THUMB</code> 与 <code>KS_MODE_THUMB</code> 恰好都是 16，所以 mode 参数没暴露问题、只有 arch 参数出错。</p>
+<p><b>修复</b>：<code>ks = Ks(KS_ARCH_ARM, KS_MODE_THUMB)</code>（用 keystone 自己导入的常量）。一行。</p>
+<div class="note"><span class="t">教训：</span>跨库调用时<b>不能凭名字相似就混用常量</b>。<code>capstone.CS_ARCH_ARM == 0</code>、<code>keystone.KS_ARCH_ARM == 1</code>，<code>CS_MODE_THUMB == KS_MODE_THUMB == 16</code>。</div>
+
+<h3>11.2　验证脚本解析 capstone 反汇编的两个坑</h3>
+<ol>
+<li><b>mnemonic 带 <code>.w</code> 后缀</b>：<code>ldr.w</code> / <code>tst.w</code> / <code>ldrb.w</code> 的 <code>mnemonic</code> 字段分别是 <code>'ldr.w'</code>、<code>'tst.w'</code>、<code>'ldrb.w'</code>，与 <code>'ldr'</code>、<code>'tst'</code> <b>不相等</b>。比较前必须先 <code>.replace('.w', '')</code>，否则所有基于 mnemonic 的判定会静默失效（表现为「提取不到 row/bit」「找不到 E0F 字面量」）。</li>
+<li><b>字面量池会被继续反汇编成伪指令</b>：trampoline 尾部的池数据（如 <code>0F 1E 00 20</code>）会被 capstone 解释成 <code>subs r7,r1,#0</code> / <code>movs r0,#0</code> 这样的“指令”。判定「代码区末尾」必须<b>以 <code>bx lr</code> 为界</b>截断，不能用「blob 总长度」当代码区长度（v8 trampoline B 总长 72 字节、代码区只有 60 字节）。</li>
+</ol>
+
+<h3>11.3　为什么必须刷新「行循环内」而不是「行循环后」</h3>
+<p>一个自然的想法是「把 E0F 读取点直接放到 <code>0x413D0</code> 之前」。但那样只解决消费点②，<b>消费点①（<code>0x41286</code>，行循环内）就会读到未定义/陈旧的 <code>r7</code></b>——因为 <code>r7</code> 在 2.4G 函数内没有其他写入点。</p>
+<p>v8 的选择是<b>在行循环内逐 row 刷新 <code>r7</code></b>（trampoline B 的 <code>.restore</code>），一举两得：</p>
+<ul>
+<li>消费点①（<code>0x41286</code>）：r4 = 15 那次迭代拿到本轮值，其余行仍是上一轮（与 BT 同构，矩阵固有限制）；</li>
+<li>消费点②（<code>0x413D0</code>）：循环退出时 <code>r7</code> 是 row15 那次迭代刷新的值 = <b>本轮最新</b>。</li>
+</ul>
+
+<h3>11.4　为什么删除 HOOK_C 的 r7 赋值是安全的</h3>
+<p>依据（见 §3.3.1 的完整枚举）：<code>r7</code> 在 2.4G 扫描函数体内的 <b>3 处写入</b>分别是 <code>0x4119C</code>（序言 <code>mov r7,fp</code> ⇒ 初值 0）、<code>0x411CE</code>（HOOK_C 的 <code>movs r7,#1</code>）、<code>0x413AE</code>（尾声 <code>pop</code> 恢复）；<b>2 处消费</b>是 <code>0x41286</code> 与 <code>0x413D0</code> 两处 <code>cbz r7</code>。</p>
+<p>其中序言那次在行循环之前、尾声那次在行循环之后，<b>唯一会影响消费点的前置写入</b>就是 v7 trampoline C 的 <code>mov r7,r0</code>。删除它、并把该写入挪到行循环内的 trampoline B（<code>0x41252</code>，早于 <code>0x41286</code>）之后，<code>r7</code> 在两个消费点处<b>始终有定义且是本轮最新值</b>，<b>不产生任何新的未定义行为</b>。</p>
+<div class="note"><span class="t">附带结论：</span>原始固件中 <code>r7</code> 初值为 0（因 <code>mov.w fp,#0</code>），且只有 P0.6 按下时才置 1，故 <code>cbz r7</code> 的原始语义就是「<b>Fn（P0.6）未按下</b>」。v6 把载体换成矩阵 Fn 后语义自然变成「矩阵 Fn 未按下」，v7/v8 只是改变<b>取样时刻</b>，不改变语义与极性。</div>
+
+<h3>11.5　逐步确认清单</h3>
+<ul>
+<li>2.4G 函数体内 <code>r7</code> 的全部写入点与消费点已枚举（1 处写、2 处读）；</li>
+<li><code>0x41286</code> / <code>0x413D0</code> 两条 <code>cbz r7</code> 已在成品固件中复核存在；</li>
+<li>写入点（HOOK_B，row15 生效）在读取点（trampoline B <code>.restore</code>）<b>之前</b>，且在同一 row 迭代内；</li>
+<li>row15 是外层行循环的最后一次迭代（<code>0x413BE cmp r4,#0x10</code> / <code>0x413C0 blo.w</code>）；</li>
+<li>BT 路径的写入点 <code>0x1E4E4</code> &lt; 读取点 <code>0x1EB74</code>，同处一次扫描流程，无需改动；</li>
+<li>trampoline B 的 <code>.restore</code> 精确复原原指令 <code>ldrb.w r2,[sl,r4]</code> 与标志位 <code>cmp r0,#0</code>；</li>
+<li>全部 5 个 trampoline 落点在写入前为空洞（0xFF），无越界；</li>
+<li>固件长度不变（524288），向量表 Reset_Handler 不变。</li>
+</ul>
+
+<h3>11.6　最终独立复核</h3>
+<ul>
+<li><code>verify_v8.py</code> 全部检查通过（含 4 组 E0F 新鲜度仿真）；</li>
+<li>v8 固件与原始固件的差异精确落在 18 个预期区间，其余逐字节相同；</li>
+<li>本文档中所有汇编片段、字节序列、地址均取自 <code>KC-1957_88_orig.bin</code> / <code>KC-1957_88_v8.bin</code> / <code>KC-1957_88_v7.bin</code> 的实际反汇编输出。</li>
+</ul>
+
+<h2 id="s12">十二、v8 审计记录</h2>
+
+<h3>12.1　与 v7 的关系</h3>
+<table>
+<thead><tr><th>维度</th><th>结论</th></tr></thead>
+<tbody>
+<tr><td>基线</td><td><b>直接基于原始固件</b> <code>KC-1957_88_orig.bin</code> 打补丁，<b>不依赖 v7 产物</b>；v7 仅作差异对照</td></tr>
+<tr><td>键位语义</td><td>与 v7 <b>完全一致</b>（v8 不改变任何键位输出）</td></tr>
+<tr><td>BT 路径</td><td><b>零字节改动</b></td></tr>
+<tr><td>数据补丁</td><td>与 v7 <b>逐字节一致</b>（7 处全部相同）</td></tr>
+<tr><td>HOOK_A / D / E 指令</td><td>与 v7 <b>逐字节一致</b></td></tr>
+<tr><td>Trampoline A / D / E</td><td>与 v7 <b>逐字节一致</b></td></tr>
+<tr><td>Trampoline B</td><td>v8 = v7 + 8 字节（新增 r7 刷新）</td></tr>
+<tr><td>Trampoline C</td><td>v8 = v7 − 12 字节（删除行循环前的 r7 赋值）</td></tr>
+<tr><td>固件总改动</td><td>v7 = 274B/18 区域 → v8 = 270B/18 区域</td></tr>
+</tbody>
+</table>
+
+<h3>12.2　v8 的两处「外科式」改动</h3>
+<ol>
+<li><b>Trampoline C（0x50200）</b>：删除「读 E0F → <code>mov r7,r0</code>」三步与随之无用的 E0F 池项。语义上，<code>r7</code> 的<b>写入时机</b>从「行循环前」移到「行循环内」。</li>
+<li><b>Trampoline B（0x50100）</b>：在 <code>.restore</code> 处新增「<code>ldr.w r7,[pc]</code> + <code>ldrb r7,[r7]</code>」两步。语义上，<code>r7</code> 的<b>取样频率</b>从「每次扫描一次」变成「每个 row 一次」。</li>
+</ol>
+<p>两处改动合起来，等价于把 2.4G 路径的 Fn 标志从「<b>快照</b>」变成「<b>实时镜像</b>」，从而与 BT 路径的「使用点即时读取」达到同样的时序语义。</p>
+
+<h3>12.3　改动范围与验证</h3>
+<table>
+<thead><tr><th>项</th><th>值</th></tr></thead>
+<tbody>
+<tr><td>改动字节数</td><td>270</td></tr>
+<tr><td>改动区间数</td><td>18</td></tr>
+<tr><td>改动位置</td><td>全部在 <code>0x50000</code>–<code>0x60000</code> 空洞（trampoline）+ 12 处数据/钩子点</td></tr>
+<tr><td>固件长度</td><td>524288（不变）</td></tr>
+<tr><td>Reset_Handler</td><td><code>0x00000A81</code>（不变）</td></tr>
+<tr><td>独立验证</td><td><code>verify_v8.py</code> 全项通过</td></tr>
+</tbody>
+</table>
+
+<h2 id="s13">十三、文件清单</h2>
+<table>
+<thead><tr><th>文件</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>KC-1957_88_v8.bin</code></td><td><b>v8 改造固件（交付物，可直接刷写）</b></td></tr>
+<tr><td><code>KC-1957_88_v8.bin.bak</code></td><td>应用补丁时自动备份的原始内容</td></tr>
+<tr><td><code>fn_swap_debounce_inline_patch.py</code></td><td>v8 补丁脚本（基于原始固件；<code>--apply</code> 写出，<code>--out</code> 必填）</td></tr>
+<tr><td><code>verify_v8.py</code></td><td>独立验证脚本（capstone 反汇编 + 字节比对 + E0F 新鲜度仿真）</td></tr>
+<tr><td><code>KC-1957_左Ctrl与Fn互换改造说明_P06去抖_E0F后置_v8.md</code></td><td><b>本文档（单一事实源）</b></td></tr>
+<tr><td><code>KC-1957_左Ctrl与Fn互换改造说明_P06去抖_E0F后置_v8.html</code></td><td>执行原理（框图模式，SVG 前后对比图）</td></tr>
+<tr><td><code>SHA256SUMS.txt</code></td><td>各文件 SHA-256 档案</td></tr>
+<tr><td><code>README.md</code></td><td>目录导览与用法</td></tr>
+<tr><td><code>disasm*.py</code> / <code>disasm_*.txt</code></td><td>反汇编分析中间产物（保留作证据）</td></tr>
+</tbody>
+</table>
+
+<footer>
+KC-1957 固件改造工程 · v8（E0F 读取点后置）· 直接基于原始固件打补丁，不依赖中间版本。<br>
+固件哈希（SHA-256）：<code>orig = 57df656c…da66f7</code>、<code>v8 = 1baaef2d…e7bc8a22f</code>。原始固件在 <code>..\v7_p06_debounce\KC-1957_88_orig.bin</code>（与 v5/v6/v7 目录内的副本 SHA-256 一致）。
+</footer>
+
+</div>
+</body>
+</html>

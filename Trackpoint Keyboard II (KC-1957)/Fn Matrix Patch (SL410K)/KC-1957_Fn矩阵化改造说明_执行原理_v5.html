@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KC-1957 Fn 键矩阵化改造 · 执行原理（v5.1）</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2129;--fg2:#4e5969;--fg3:#86909c;--line:#e5e6eb;--accent:#165dff;--accent-soft:#e8f3ff;--code-bg:#f2f3f5;--red:#c0392b;--green:#0a7d38;--amber:#7a4b00}
+@media (prefers-color-scheme: dark){
+:root{--bg:#17171a;--card:#202024;--fg:#e5e6eb;--fg2:#a9aeb8;--fg3:#6b7280;--line:#2f2f35;--accent:#5c8bff;--accent-soft:#1c2740;--code-bg:#26262c;--red:#ff7a72;--green:#4ade80;--amber:#e3b341}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+h1{font-size:27px;margin:0 0 8px;padding-bottom:16px;border-bottom:2px solid var(--line)}
+h2{font-size:21px;margin:42px 0 14px;padding-left:11px;border-left:4px solid var(--accent)}
+h3{font-size:17px;margin:26px 0 10px}
+p{margin:12px 0}
+code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12.8px}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+pre.asm{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12.6px;line-height:1.62;white-space:pre}
+pre.asm .a{color:var(--amber);font-weight:700}
+pre.asm .b{color:var(--red);font-weight:700}
+pre.asm .c{color:var(--green)}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;background:var(--card);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);font-weight:600;color:var(--fg2);white-space:nowrap}
+tr:nth-child(even) td{background:rgba(127,127,127,.04)}
+.callout{background:var(--accent-soft);border:1px solid var(--accent);border-left:4px solid var(--accent);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--fg2)}
+.callout p{margin:6px 0}
+.diagram{width:100%;height:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;margin:14px 0;padding:6px}
+.tag{display:inline-block;background:var(--accent-soft);border:1px solid var(--line);border-radius:4px;padding:0 7px;font-family:monospace;font-size:12px}
+.old{color:var(--red);font-weight:600}
+.new{color:var(--green);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>KC-1957（nRF52832）Fn 键矩阵化改造 · 执行原理（v5.1）</h1>
+
+<div class="callout">
+<p><strong>一句话结论：</strong>把 Fn 从「单独 P0.6 GPIO」扩展为「<strong>P0.6 拉低 或 键阵 r12c4 按下</strong>」的并联判定。除新增 1 字节锁存 <code>FN_MATRIX @0x20004800</code> 外，不引入任何新内存变量，也不改动其它判定逻辑。蓝牙（BT）与 2.4G 两条扫描路径均完成改造，行为一致。</p>
+</div>
+
+<h2>一、补丁前后 · Fn 判定源对照</h2>
+
+<svg class="diagram" viewBox="0 0 900 300" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>v5.1 Fn 判定并联机制</title>
+<desc>补丁前仅 P0.6，补丁后 P0.6 或 r12c4 并联</desc>
+<defs>
+<marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<text x="30" y="28" font-size="14" font-weight="600" fill="#26215C">补丁前：单一来源</text>
+<text x="470" y="28" font-size="14" font-weight="600" fill="#04342C">补丁后：并联（OR）</text>
+
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<rect x="30" y="44" width="410" height="60" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="46" y="68" font-size="13" font-weight="600" fill="#791F1F">P0.6 GPIO（低有效）</text>
+<text x="46" y="88" font-size="12" fill="#A32D2D">去抖 → E0F → Fn 修饰键</text>
+
+<rect x="470" y="44" width="410" height="60" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="486" y="68" font-size="13" font-weight="600" fill="#04342C">P0.6 拉低（原路径保留）</text>
+<text x="486" y="88" font-size="12" fill="#0F6E56">去抖 → E0F</text>
+
+<rect x="470" y="116" width="410" height="60" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="486" y="140" font-size="13" font-weight="600" fill="#04342C">键阵 r12c4（虚拟 Fn，原空槽）</text>
+<text x="486" y="160" font-size="12" fill="#0F6E56">扫描钩子 → FN_MATRIX=1 + 清位图</text>
+
+<rect x="470" y="196" width="410" height="56" rx="10" fill="#FAC775" stroke="#854F0B" stroke-width="0.5"/>
+<text x="486" y="218" font-size="13" font-weight="600" fill="#412402">OR 并联</text>
+<text x="486" y="238" font-size="12" fill="#854F0B">任一成立即识别为 Fn 按下</text>
+</g>
+<line x1="675" y1="104" x2="675" y2="114" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#a1)"/>
+<line x1="675" y1="176" x2="675" y2="194" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#a1)"/>
+<text x="30" y="280" font-size="12" fill="#5F5E5A">注：SL410K 盘体的 Fn 只能走矩阵（r12c4），旧键盘只走 P0.6 —— 两条路径并联保证两者 100% 兼容</text>
+</svg>
+
+<h2>二、核心机制：FN_MATRIX 锁存 + 两条路径分流</h2>
+
+<p>新增唯一 RAM 字节 <code>FN_MATRIX @0x20004800</code>（选址在全部已引用 RAM 变量之上，按函数边界精确普查 661 个变量、最高 <code>0x20003928</code>，故取 +3616 字节）。矩阵 Fn 的「按下」由扫描钩子写入，两条路径据此分流：</p>
+
+<svg class="diagram" viewBox="0 0 900 340" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>FN_MATRIX 两条路径分流</title>
+<desc>BT 与 2.4G 各自如何联动 Fn</desc>
+<defs>
+<marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<rect x="320" y="24" width="260" height="52" rx="10" fill="#FAC775" stroke="#854F0B" stroke-width="0.5"/>
+<text x="450" y="44" text-anchor="middle" font-size="13" font-weight="600" fill="#412402">FN_MATRIX @0x20004800</text>
+<text x="450" y="62" text-anchor="middle" font-size="11.5" fill="#854F0B">矩阵 Fn 按下锁存（1/0）</text>
+
+<rect x="60" y="120" width="340" height="150" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="76" y="144" font-size="13" font-weight="600" fill="#042C53">蓝牙 BT 路径（FUN_0001e40c）</text>
+<text x="76" y="166" font-size="11.5" fill="#185FA5">Trampoline A：写 FN_MATRIX=1</text>
+<text x="76" y="184" font-size="11.5" fill="#185FA5">+ 强制 E0F=1（与 P0.6 并联）</text>
+<text x="76" y="202" font-size="11.5" fill="#185FA5">+ 清 local_64[12] 的 bit4</text>
+<text x="76" y="226" font-size="11.5" fill="#185FA5">→ E0F=1 → HID Fn 修饰键</text>
+<text x="76" y="248" font-size="11.5" fill="#185FA5">Trampoline D：矩阵 Fn 按住时</text>
+<text x="76" y="266" font-size="11.5" fill="#185FA5">保护 E0F 不被去抖清除</text>
+
+<rect x="500" y="120" width="340" height="150" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="516" y="144" font-size="13" font-weight="600" fill="#04342C">2.4G 路径（FUN_00041180）</text>
+<text x="516" y="166" font-size="11.5" fill="#0F6E56">Trampoline B：写 FN_MATRIX=1</text>
+<text x="516" y="184" font-size="11.5" fill="#0F6E56">+ 清 r0/local_84[12] 的 bit4</text>
+<text x="516" y="202" font-size="11.5" fill="#0F6E56">+ cmp r0,#0 复原标志位</text>
+<text x="516" y="226" font-size="11.5" fill="#0F6E56">Trampoline C：Fn 判定 OR</text>
+<text x="516" y="244" font-size="11.5" fill="#0F6E56">P0.6 低 或 FN_MATRIX=1</text>
+<text x="516" y="266" font-size="11.5" fill="#0F6E56">→ 写伪键码 0xDF</text>
+</g>
+<line x1="450" y1="76" x2="230" y2="116" stroke="#854F0B" stroke-width="1.5" marker-end="url(#a2)"/>
+<line x1="450" y1="76" x2="670" y2="116" stroke="#854F0B" stroke-width="1.5" marker-end="url(#a2)"/>
+<text x="60" y="300" font-size="12" fill="#5F5E5A">两路径零交集：2109/D7B 为 BT 专属，2.4G 用自身标志 0x200001C8 bit0 驱动，互不干扰</text>
+</svg>
+
+<h2>三、执行链路（含关键机器码）</h2>
+
+<h3>3.1 Trampoline A —— 蓝牙扫描行循环（写 FN_MATRIX + 强制 E0F）</h3>
+
+<p>调用点 r0=local_64[r5]（列位图）、r5=行号，<code>tst r0,#0x10</code> 检测 r12c4（bit4）。「按下」分支强制 E0F=1 与 P0.6 去抖值并联；「松开」分支只撤 FN_MATRIX，E0F 交还去抖状态机（避免用原始 P0.IN 覆盖去抖值）。</p>
+
+<pre class="asm"><span class="a">0x50000</span>  <span class="b">0C 2D</span>        cmp   r5, #0xc          <span class="c">; 仅 row12（导航簇行）</span>
+<span class="a">0x50002</span>  <span class="b">15 D1</span>        bne   #0x50030          <span class="c">; 其它行 → .restore</span>
+<span class="a">0x50004</span>  <span class="b">10 F0 10 0F</span>  tst.w r0, #0x10         <span class="c">; bit4（ASD 列）按下？</span>
+<span class="a">0x50008</span>  <span class="b">0E D0</span>        beq   #0x50028          <span class="c">; 否 → .zero</span>
+<span class="a">0x5000A</span>  <span class="b">01 22</span>        movs  r2, #1
+<span class="a">0x5000C</span>  <span class="b">DF F8 28 10</span>  ldr.w r1, [pc, #0x28]   <span class="c">; r1 = FN_MATRIX</span>
+<span class="a">0x50010</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; FN_MATRIX = 1</span>
+<span class="a">0x50012</span>  <span class="b">DF F8 28 10</span>  ldr.w r1, [pc, #0x28]   <span class="c">; r1 = E0F</span>
+<span class="a">0x50016</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; E0F = 1（与 P0.6 并联）</span>
+<span class="a">0x50018</span>  <span class="b">07 A9</span>        add   r1, sp, #0x1c     <span class="c">; r1 = local_64[12]</span>
+<span class="a">0x5001A</span>  <span class="b">51 F8 25 20</span>  ldr.w r2, [r1, r5, lsl #2]
+<span class="a">0x5001E</span>  <span class="b">22 F0 10 02</span>  bic   r2, r2, #0x10      <span class="c">; 清 bit4 → 不发伪键码 0x8C</span>
+<span class="a">0x50022</span>  <span class="b">41 F8 25 20</span>  str.w r2, [r1, r5, lsl #2]
+<span class="a">0x50026</span>  <span class="b">03 E0</span>        b     #0x50030
+<span class="a">0x50028</span>  <span class="b">00 22</span>        movs  r2, #0            <span class="c">; .zero</span>
+<span class="a">0x5002A</span>  <span class="b">DF F8 14 10</span>  ldr.w r1, [pc, #0x14]   <span class="c">; r1 = FN_MATRIX</span>
+<span class="a">0x5002E</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; FN_MATRIX = 0（松开）</span>
+<span class="a">0x50030</span>  <span class="b">DF F8 10 10</span>  ldr.w r1, [pc, #0x10]   <span class="c">; r1 = ROWPIN(0x2CBE0)</span>
+<span class="a">0x50034</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.2 Trampoline B —— 2.4G 扫描行循环（v5.1 关键修正）</h3>
+
+<div class="callout">
+<p><strong>v5.1 修正的两处 v5 缺陷（本节重点）：</strong></p>
+<p>① <strong>缺陷 1（屏蔽失效）</strong>：2.4G 路径钩子之后逐位测试用的是<strong>寄存器 r0</strong>（<code>0x4126C: tst.w r0, ip</code>），v5 只清 <code>local_84[r4]</code> 而没清 r0，导致 2.4G 下 r12c4 根本没被屏蔽。v5.1 同时清 r0 与 local_84。</p>
+<p>② <strong>缺陷 2（整行丢键）</strong>：钩子返回后 <code>0x4125E</code> 的 <code>beq</code> 依赖 <code>0x4124C bics</code> 的 Z 位，v5 的 <code>cmp/tst/movs</code> 改写了 NZCV，第 12 行按其它键时被整行丢弃。v5.1 用 <code>cmp r0,#0</code> 复原标志位。</p>
+</div>
+
+<pre class="asm"><span class="a">0x50100</span>  <span class="b">0C 2C</span>        cmp   r4, #0xc          <span class="c">; 仅 row12</span>
+<span class="a">0x50102</span>  <span class="b">14 D1</span>        bne   #0x5012e
+<span class="a">0x50104</span>  <span class="b">10 F0 10 0F</span>  tst.w r0, #0x10         <span class="c">; bit4 按下？</span>
+<span class="a">0x50108</span>  <span class="b">0D D0</span>        beq   #0x50126
+<span class="a">0x5010A</span>  <span class="b">01 22</span>        movs  r2, #1
+<span class="a">0x5010C</span>  <span class="b">DF F8 28 10</span>  ldr.w r1, [pc, #0x28]   <span class="c">; r1 = FN_MATRIX</span>
+<span class="a">0x50110</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; FN_MATRIX = 1</span>
+<span class="a">0x50112</span>  <span class="b">20 F0 10 00</span>  bic   r0, r0, #0x10      <span class="c">; ★修正①：清 r0 bit4（2.4G 逐位测试用 r0）</span>
+<span class="a">0x50116</span>  <span class="b">09 A9</span>        add   r1, sp, #0x24     <span class="c">; r1 = local_84[12]</span>
+<span class="a">0x50118</span>  <span class="b">51 F8 24 20</span>  ldr.w r2, [r1, r4, lsl #2]
+<span class="a">0x5011C</span>  <span class="b">22 F0 10 02</span>  bic   r2, r2, #0x10      <span class="c">; 清 local_84[12] 的 bit4</span>
+<span class="a">0x50120</span>  <span class="b">41 F8 24 20</span>  str.w r2, [r1, r4, lsl #2]
+<span class="a">0x50124</span>  <span class="b">03 E0</span>        b     #0x5012e
+<span class="a">0x50126</span>  <span class="b">00 22</span>        movs  r2, #0            <span class="c">; .zero</span>
+<span class="a">0x50128</span>  <span class="b">DF F8 10 10</span>  ldr.w r1, [pc, #0x10]   <span class="c">; r1 = FN_MATRIX</span>
+<span class="a">0x5012C</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; FN_MATRIX = 0</span>
+<span class="a">0x5012E</span>  <span class="b">1A F8 04 20</span>  ldrb.w r2, [sl, r4]     <span class="c">; 复原原指令</span>
+<span class="a">0x50132</span>  <span class="b">00 28</span>        cmp   r0, #0            <span class="c">; ★修正②：复原标志位（Z = 该行是否为空）</span>
+<span class="a">0x50134</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.3 Trampoline C —— 2.4G Fn 判定 OR（伪键 0xDF）</h3>
+
+<pre class="asm"><span class="a">0x50200</span>  <span class="b">DF F8 20 00</span>  ldr.w r0, [pc, #0x20]   <span class="c">; r0 = &amp;P0.IN</span>
+<span class="a">0x50204</span>  <span class="b">00 68</span>        ldr   r0, [r0]          <span class="c">; r0 = P0.IN</span>
+<span class="a">0x50206</span>  <span class="b">41 06</span>        lsls  r1, r0, #0x19     <span class="c">; bit6 → bit31</span>
+<span class="a">0x50208</span>  <span class="b">00 D4</span>        bmi   #0x5020c          <span class="c">; P0.6 低 → 触发</span>
+<span class="a">0x5020A</span>  <span class="b">05 E0</span>        b     #0x50218          <span class="c">; P0.6 高 → 查 FN_MATRIX</span>
+<span class="a">0x5020C</span>  <span class="b">DF F8 18 10</span>  ldr.w r1, [pc, #0x18]   <span class="c">; r1 = FN_MATRIX</span>
+<span class="a">0x50210</span>  <span class="b">09 78</span>        ldrb  r1, [r1]
+<span class="a">0x50212</span>  <span class="b">01 29</span>        cmp   r1, #1            <span class="c">; 矩阵 Fn 按下？</span>
+<span class="a">0x50214</span>  <span class="b">00 D0</span>        beq   #0x50218          <span class="c">; 是 → 触发</span>
+<span class="a">0x50216</span>  <span class="b">04 E0</span>        b     #0x50222          <span class="c">; 否 → 不触发</span>
+<span class="a">0x50218</span>  <span class="b">01 27</span>        movs  r7, #1            <span class="c">; .act</span>
+<span class="a">0x5021A</span>  <span class="b">DF 21</span>        movs  r1, #0xdf         <span class="c">; Fn 伪键码</span>
+<span class="a">0x5021C</span>  <span class="b">8D F8 10 10</span>  strb.w r1, [sp, #0x10]
+<span class="a">0x50220</span>  <span class="b">3D 46</span>        mov   r5, r7
+<span class="a">0x50222</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.4 Trampoline D —— 去抖 E0F 清除保护</h3>
+
+<p>矩阵 Fn 按住期间 P0.6 仍为高，去抖状态机 <code>FUN_0001b75c</code> 会把 E0F 清 0（Fn 释放）。改为：FN_MATRIX≠0（矩阵 Fn 仍按住）时直接返回跳过清除，保住 Trampoline A 写入的 E0F=1。</p>
+
+<pre class="asm"><span class="a">0x50300</span>  <span class="b">DF F8 14 10</span>  ldr.w r1, [pc, #0x14]   <span class="c">; r1 = FN_MATRIX</span>
+<span class="a">0x50304</span>  <span class="b">09 78</span>        ldrb  r1, [r1]
+<span class="a">0x50306</span>  <span class="b">00 29</span>        cmp   r1, #0
+<span class="a">0x50308</span>  <span class="b">00 D0</span>        beq   #0x5030c          <span class="c">; 无矩阵 Fn → 走 .clr</span>
+<span class="a">0x5030A</span>  <span class="b">70 47</span>        bx    lr                <span class="c">; 矩阵 Fn 按住 → 跳过清除</span>
+<span class="a">0x5030C</span>  <span class="b">DF F8 0C 10</span>  ldr.w r1, [pc, #0xc]    <span class="c">; r1 = E0F</span>
+<span class="a">0x50310</span>  <span class="b">00 20</span>        movs  r0, #0
+<span class="a">0x50312</span>  <span class="b">08 70</span>        strb  r0, [r1]          <span class="c">; E0F = 0（还原原清除语义）</span>
+<span class="a">0x50314</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h2>四、补丁清单与改动范围</h2>
+
+<table>
+<thead><tr><th>类别</th><th>地址</th><th>原始</th><th>补丁后</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td>行掩码 BT r12</td><td>0x1E84C</td><td>0xE7</td><td>0xF7</td><td>置 bit4，放行 r12c4</td></tr>
+<tr><td>行掩码 G r12</td><td>0x4A6B2</td><td>0x1C</td><td>0x0C</td><td>清 bit4，放行 r12c4</td></tr>
+<tr><td>HOOK A</td><td>0x1E4E4</td><td>nop+ldr</td><td>bl 0x50000</td><td>BT 扫描写 FN_MATRIX+E0F</td></tr>
+<tr><td>HOOK B</td><td>0x41252</td><td>ldrb.w</td><td>bl 0x50100</td><td>2.4G 扫描写 FN_MATRIX</td></tr>
+<tr><td>HOOK C</td><td>0x411C6</td><td>18 字节</td><td>bl 0x50200</td><td>2.4G Fn 判定 OR</td></tr>
+<tr><td>HOOK D</td><td>0x1B7C0</td><td>6 字节</td><td>bl 0x50300</td><td>去抖 E0F 清除保护</td></tr>
+</tbody>
+</table>
+
+<div class="callout">
+<p><strong>改动范围：</strong>246 字节 / 10 区域，全部落在 0x50000–0x60000 擦除空洞（静态不可达），向量表 Reset_Handler（0x00000A81）不变。新增内存变量仅 <code>FN_MATRIX</code> 一处，2109/D7B/E09 完全不被读写。独立验证脚本 <code>verify_v51.py</code> 共 <strong>43 项检查全部通过</strong>（含 v5 旧版 SEQ_B 的反例对照，复现并证明两处缺陷已修）。</p>
+</div>
+
+<h2>五、历次版本踩坑（正确性保障）</h2>
+<table>
+<thead><tr><th>版本</th><th>问题</th><th>本版处理</th></tr></thead>
+<tbody>
+<tr><td>v1/v2</td><td>矩阵 Fn 写入 0x20001D7B（HID 下发的 Fn 档位标志，会被覆盖）</td><td>弃用该地址</td></tr>
+<tr><td>v3</td><td>松开分支写 E0F=P0.IN 覆盖去抖值；写 2109=*E0F 丢档位门控</td><td>松开只撤 FN_MATRIX，E0F/2109 交还原主</td></tr>
+<tr><td>键码表</td><td>曾把 r12c4 槽写 0x8C 再覆盖，污染键码表</td><td>改为直接清行位图 bit4</td></tr>
+<tr><td>v5</td><td>2.4G 屏蔽失效（未清 r0）、整行丢键（未复原 Z）</td><td>v5.1 同时清 r0 + 复原标志位</td></tr>
+</tbody>
+</table>
+
+</div>
+</body>
+</html>

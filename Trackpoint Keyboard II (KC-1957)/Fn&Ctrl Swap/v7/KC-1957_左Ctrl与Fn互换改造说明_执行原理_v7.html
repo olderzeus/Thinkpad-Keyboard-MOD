@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KC-1957 左 Ctrl 与 Fn 完全互换改造 · P0.6 去抖（v7）</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2129;--fg2:#4e5969;--fg3:#86909c;--line:#e5e6eb;--accent:#165dff;--accent-soft:#e8f3ff;--code-bg:#f2f3f5;--red:#c0392b;--green:#0a7d38;--amber:#7a4b00}
+@media (prefers-color-scheme: dark){
+:root{--bg:#17171a;--card:#202024;--fg:#e5e6eb;--fg2:#a9aeb8;--fg3:#6b7280;--line:#2f2f35;--accent:#5c8bff;--accent-soft:#1c2740;--code-bg:#26262c;--red:#ff7a72;--green:#4ade80;--amber:#e3b341}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+h1{font-size:27px;margin:0 0 8px;padding-bottom:16px;border-bottom:2px solid var(--line)}
+h2{font-size:21px;margin:42px 0 14px;padding-left:11px;border-left:4px solid var(--accent)}
+h3{font-size:17px;margin:26px 0 10px}
+p{margin:12px 0}
+code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12.8px}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+pre.asm{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12.6px;line-height:1.62;white-space:pre}
+pre.asm .a{color:var(--amber);font-weight:700}
+pre.asm .b{color:var(--red);font-weight:700}
+pre.asm .c{color:var(--green)}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;background:var(--card);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);font-weight:600;color:var(--fg2);white-space:nowrap}
+tr:nth-child(even) td{background:rgba(127,127,127,.04)}
+.callout{background:var(--accent-soft);border:1px solid var(--accent);border-left:4px solid var(--accent);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--fg2)}
+.callout p{margin:6px 0}
+.diagram{width:100%;height:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;margin:14px 0;padding:6px}
+.tag{display:inline-block;background:var(--accent-soft);border:1px solid var(--line);border-radius:4px;padding:0 7px;font-family:monospace;font-size:12px}
+.old{color:var(--red);font-weight:600}
+.new{color:var(--green);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>KC-1957（nRF52832）左 Ctrl 与 Fn 完全互换改造 · P0.6 去抖（v7）</h1>
+
+<div class="callout">
+<p><strong>一句话结论：</strong>v7 = v6 + <strong>P0.6 去抖</strong>。在 v6「左 Ctrl 与 Fn 完全互换」基础上，把 P0.6 发 Left Ctrl 的判定由「原始 P0.IN bit6」改为「去抖后的 E0F2」，消除机械按键抖动导致的 Left Ctrl 误触发。差异严格限定在 trampoline C / E 两段（共 50 字节），其余与 v6 逐字节一致。</p>
+</div>
+
+<h2>一、为什么需要去抖</h2>
+
+<p>机械按键在按下/松开的瞬间会产生数十毫秒抖动。v6 中 P0.6 发 Left Ctrl 直接读原始电平（<code>P0.IN</code> bit6），一次按键可能被识别为多次「按下→松开→按下」，导致 Left Ctrl 粘连、组合键误判。</p>
+
+<h2>二、核心机制：复用去抖状态机的输出 E0F2</h2>
+
+<svg class="diagram" viewBox="0 0 900 360" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>E0F2 去抖信号复用机制</title>
+<desc>去抖状态机输出 E0F2，v7 让 P0.6 注入改读 E0F2</desc>
+<defs>
+<marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<rect x="30" y="40" width="230" height="64" rx="10" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="46" y="62" font-size="12.5" font-weight="600" fill="#2C2C2A">P0.6 原始电平</text>
+<text x="46" y="82" font-size="11.5" fill="#5F5E5A">低有效（按下=低），含抖动</text>
+
+<rect x="320" y="40" width="260" height="64" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="336" y="62" font-size="12.5" font-weight="600" fill="#042C53">FUN_0001b75c 去抖状态机</text>
+<text x="336" y="82" font-size="11.5" fill="#185FA5">周期调用（0x2B950 回调表），滤抖动</text>
+
+<rect x="640" y="40" width="230" height="64" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="656" y="62" font-size="12.5" font-weight="600" fill="#04342C">E0F2 @0x20004800</text>
+<text x="656" y="82" font-size="11.5" fill="#0F6E56">去抖后按下（1=按下，0=松开）</text>
+
+<rect x="30" y="170" width="400" height="80" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="46" y="194" font-size="12.5" font-weight="600" fill="#791F1F">v6：P0.6 注入读原始 P0.IN</text>
+<text x="46" y="216" font-size="11.5" fill="#A32D2D">trampoline C / E 直接读 P0.IN bit6</text>
+<text x="46" y="236" font-size="11.5" fill="#A32D2D">→ 抖动直接反映为 Left Ctrl 抖动</text>
+
+<rect x="470" y="170" width="400" height="80" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="486" y="194" font-size="12.5" font-weight="600" fill="#04342C">v7：P0.6 注入读去抖 E0F2</text>
+<text x="486" y="216" font-size="11.5" fill="#0F6E56">trampoline C / E 改读 E0F2</text>
+<text x="486" y="236" font-size="11.5" fill="#0F6E56">→ Left Ctrl 干净通断，无误触发</text>
+
+<text x="30" y="310" font-size="12" fill="#5F5E5A">关键：E0F2 是 v6 已现成的「P0.6 去抖按下」信号（去抖状态机池槽 0x1B8A0 已改指 E0F2），v7 零新增变量、零新增钩子、零新增去抖逻辑</text>
+</g>
+<line x1="260" y1="72" x2="316" y2="72" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a1)"/>
+<line x1="580" y1="72" x2="636" y2="72" stroke="#185FA5" stroke-width="1.5" marker-end="url(#a1)"/>
+<line x1="640" y1="104" x2="430" y2="168" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#a1)"/>
+</svg>
+
+<h2>三、两处改动（v6 → v7）</h2>
+
+<h3>3.1 Trampoline C（2.4G P0.6 判定 / 伪键）</h3>
+
+<pre class="asm"><span class="c">; v6：读原始 P0.IN bit6</span>
+<span class="a">0x50208</span>  <span class="b">4F F0 00 40</span>  mov.w r0, #0x50000000
+<span class="a">0x5020C</span>  <span class="b">D0 F8 10 05</span>  ldr.w r0, [r0, #0x510]   <span class="c">; P0.IN</span>
+<span class="a">0x50210</span>  <span class="b">40 07</span>        lsls  r0, r0, #0x19     <span class="c">; bit6 → bit31</span>
+<span class="a">0x50212</span>  <span class="b">04 D5</span>        bpl   .pressed
+
+<span class="c">; v7：读去抖 E0F2</span>
+<span class="a">0x50208</span>  <span class="b">DF F8 18 00</span>  ldr.w r0, [pc, #0x18]   <span class="c">; r0 = &amp;E0F2</span>
+<span class="a">0x5020C</span>  <span class="b">00 78</span>        ldrb  r0, [r0]          <span class="c">; r0 = E0F2</span>
+<span class="a">0x5020E</span>  <span class="b">01 28</span>        cmp   r0, #1            <span class="c">; 去抖后按下？</span>
+<span class="a">0x50210</span>  <span class="b">04 D1</span>        bne   .up</pre>
+
+<h3>3.2 Trampoline E（蓝牙 HID 修饰位）</h3>
+
+<pre class="asm"><span class="c">; v6：读原始 P0.IN bit6</span>
+<span class="a">0x50404</span>  <span class="b">4F F0 00 40</span>  mov.w r0, #0x50000000
+<span class="a">0x50408</span>  <span class="b">D0 F8 10 05</span>  ldr.w r0, [r0, #0x510]   <span class="c">; P0.IN</span>
+<span class="a">0x5040C</span>  <span class="b">40 07</span>        lsls  r0, r0, #0x19
+<span class="a">0x5040E</span>  <span class="b">04 D5</span>        bpl   .pressed
+
+<span class="c">; v7：读去抖 E0F2</span>
+<span class="a">0x50404</span>  <span class="b">DF F8 10 00</span>  ldr.w r0, [pc, #0x10]   <span class="c">; r0 = &amp;E0F2</span>
+<span class="a">0x50408</span>  <span class="b">00 78</span>        ldrb  r0, [r0]          <span class="c">; r0 = E0F2</span>
+<span class="a">0x5040A</span>  <span class="b">01 28</span>        cmp   r0, #1            <span class="c">; 去抖后按下？</span>
+<span class="a">0x5040C</span>  <span class="b">01 D1</span>        bne   .fin</pre>
+
+<h2>四、Trampoline C / E 完整代码（v7，真实二进制）</h2>
+
+<h3>Trampoline C（@0x50200，40 字节）</h3>
+<pre class="asm"><span class="a">0x50200</span>  <span class="b">DF F8 1C 00</span>  ldr.w r0, [pc, #0x1c]   <span class="c">; r0 = &amp;E0F</span>
+<span class="a">0x50204</span>  <span class="b">00 78</span>        ldrb  r0, [r0]          <span class="c">; r0 = E0F（矩阵 Fn）</span>
+<span class="a">0x50206</span>  <span class="b">07 46</span>        mov   r7, r0            <span class="c">; r7 = 矩阵 Fn</span>
+<span class="a">0x50208</span>  <span class="b">DF F8 18 00</span>  ldr.w r0, [pc, #0x18]   <span class="c">; r0 = &amp;E0F2</span>
+<span class="a">0x5020C</span>  <span class="b">00 78</span>        ldrb  r0, [r0]          <span class="c">; r0 = E0F2（去抖后 P0.6）</span>
+<span class="a">0x5020E</span>  <span class="b">01 28</span>        cmp   r0, #1            <span class="c">; 去抖后按下？</span>
+<span class="a">0x50210</span>  <span class="b">04 D1</span>        bne   #0x5021c          <span class="c">; 否 → .up</span>
+<span class="a">0x50212</span>  <span class="b">01 25</span>        movs  r5, #1            <span class="c">; uVar11 = 1</span>
+<span class="a">0x50214</span>  <span class="b">E0 21</span>        movs  r1, #0xe0         <span class="c">; 伪 Left Ctrl 键</span>
+<span class="a">0x50216</span>  <span class="b">8D F8 10 10</span>  strb.w r1, [sp, #0x10]   <span class="c">; local_98[0] = 0xE0</span>
+<span class="a">0x5021A</span>  <span class="b">00 E0</span>        b     #0x5021e
+<span class="a">0x5021C</span>  <span class="b">00 25</span>        movs  r5, #0            <span class="c">; .up: uVar11 = 0</span>
+<span class="a">0x5021E</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>Trampoline E（@0x50400，28 字节）</h3>
+<pre class="asm"><span class="a">0x50400</span>  <span class="b">00 23</span>        movs  r3, #0
+<span class="a">0x50402</span>  <span class="b">0B 70</span>        strb  r3, [r1]          <span class="c">; *param_1 = 0</span>
+<span class="a">0x50404</span>  <span class="b">DF F8 10 00</span>  ldr.w r0, [pc, #0x10]   <span class="c">; r0 = &amp;E0F2</span>
+<span class="a">0x50408</span>  <span class="b">00 78</span>        ldrb  r0, [r0]          <span class="c">; r0 = E0F2（去抖后 P0.6）</span>
+<span class="a">0x5040A</span>  <span class="b">01 28</span>        cmp   r0, #1            <span class="c">; 去抖后按下？</span>
+<span class="a">0x5040C</span>  <span class="b">01 D1</span>        bne   #0x50412          <span class="c">; 否 → .fin</span>
+<span class="a">0x5040E</span>  <span class="b">01 23</span>        movs  r3, #1
+<span class="a">0x50410</span>  <span class="b">0B 70</span>        strb  r3, [r1]          <span class="c">; *param_1 = 1（Left Ctrl 位0）</span>
+<span class="a">0x50412</span>  <span class="b">00 23</span>        movs  r3, #0            <span class="c">; 返回时 r3=0</span>
+<span class="a">0x50414</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h2>五、预期运行结果</h2>
+
+<table>
+<thead><tr><th>物理键位</th><th>行为</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>矩阵 r12c4</td><td>发 Left Ctrl</td><td>与 v6 一致</td></tr>
+<tr><td>矩阵 r15c0</td><td>充当 Fn（本身不发码）</td><td>与 v6 一致</td></tr>
+<tr><td>GPIO P0.6</td><td>发 Left Ctrl</td><td><strong>v7 新增去抖</strong>：读 E0F2 而非原始 P0.IN</td></tr>
+</tbody>
+</table>
+
+<div class="callout">
+<p><strong>改动范围：</strong>274 字节 / 18 区域，全部落在 0x50000–0x60000 擦除空洞，向量表 Reset_Handler（0x00000A81）不变。v7 相对 v6 仅差 trampoline C / E 两段（共 50 字节）。独立验证脚本 <code>verify_v7.py</code> 共 <strong>89 项检查全部通过</strong>。固件哈希：<code>orig = 57df656c…</code>、<code>v7 = 3f68e61b…</code>。</p>
+</div>
+
+<h2>六、已知边界（v6 遗留，v7 未涉及）</h2>
+<ul>
+<li><strong>r12c4 的 Left Ctrl 仅非 Fn 层生效</strong>：Fn 层键码表 0x2CC78 未改，按住 Fn 再按 r12c4 走 Fn 层原映射，不是 Left Ctrl。</li>
+</ul>
+
+</div>
+</body>
+</html>

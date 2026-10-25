@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KC-1957 左 Ctrl 与 Fn 完全互换改造 · 执行原理（v6）</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2129;--fg2:#4e5969;--fg3:#86909c;--line:#e5e6eb;--accent:#165dff;--accent-soft:#e8f3ff;--code-bg:#f2f3f5;--red:#c0392b;--green:#0a7d38;--amber:#7a4b00}
+@media (prefers-color-scheme: dark){
+:root{--bg:#17171a;--card:#202024;--fg:#e5e6eb;--fg2:#a9aeb8;--fg3:#6b7280;--line:#2f2f35;--accent:#5c8bff;--accent-soft:#1c2740;--code-bg:#26262c;--red:#ff7a72;--green:#4ade80;--amber:#e3b341}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+h1{font-size:27px;margin:0 0 8px;padding-bottom:16px;border-bottom:2px solid var(--line)}
+h2{font-size:21px;margin:42px 0 14px;padding-left:11px;border-left:4px solid var(--accent)}
+h3{font-size:17px;margin:26px 0 10px}
+p{margin:12px 0}
+code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12.8px}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+pre.asm{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12.6px;line-height:1.62;white-space:pre}
+pre.asm .a{color:var(--amber);font-weight:700}
+pre.asm .b{color:var(--red);font-weight:700}
+pre.asm .c{color:var(--green)}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;background:var(--card);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);font-weight:600;color:var(--fg2);white-space:nowrap}
+tr:nth-child(even) td{background:rgba(127,127,127,.04)}
+.callout{background:var(--accent-soft);border:1px solid var(--accent);border-left:4px solid var(--accent);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--fg2)}
+.callout p{margin:6px 0}
+.diagram{width:100%;height:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;margin:14px 0;padding:6px}
+.tag{display:inline-block;background:var(--accent-soft);border:1px solid var(--line);border-radius:4px;padding:0 7px;font-family:monospace;font-size:12px}
+.old{color:var(--red);font-weight:600}
+.new{color:var(--green);font-weight:600}
+.flowbox{font-size:13px}
+.flowbox .ti{font-weight:600;font-size:13.5px}
+.flowbox .sub{font-size:11.5px;fill:var(--fg2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>KC-1957（nRF52832）左 Ctrl 与 Fn 完全互换改造 · 执行原理（v6）</h1>
+
+<div class="callout">
+<p><strong>一句话结论：</strong>把 <em>Fn 的判定源</em>从「P0.6 GPIO」整体换成「矩阵 r15c0」，同时把 <em>键位映射</em>对调 —— <strong>r12c4 与 P0.6 发 Left Ctrl，r15c0 当 Fn</strong>。改造后 P0.6 完全退出 Fn 语义，只剩「发 Left Ctrl」一条作用。</p>
+</div>
+
+<h2>一、补丁前后 · 键位映射对照</h2>
+
+<svg class="diagram" viewBox="0 0 900 340" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>v6 补丁前后键位映射对照</title>
+<desc>三个物理键位在补丁前后的行为对比</desc>
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<text x="30" y="28" font-size="14" font-weight="600" fill="#26215C">补丁前（原始固件）</text>
+<text x="470" y="28" font-size="14" font-weight="600" fill="#04342C">补丁后（v6）</text>
+
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<rect x="30" y="46" width="410" height="66" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="46" y="70" font-size="13" font-weight="600" fill="#791F1F">矩阵 r12c4（idx100 · 空槽）</text>
+<text x="46" y="90" font-size="12" fill="#A32D2D">键码表 = 0x00 → 不产生任何键码</text>
+
+<rect x="470" y="46" width="410" height="66" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="486" y="70" font-size="13" font-weight="600" fill="#04342C">矩阵 r12c4（idx100）→ Left Ctrl</text>
+<text x="486" y="90" font-size="12" fill="#0F6E56">键码表 0x00→0xE0 + 行掩码放行 bit4</text>
+
+<rect x="30" y="124" width="410" height="66" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="46" y="148" font-size="13" font-weight="600" fill="#791F1F">GPIO P0.6（低有效 · 旧 Fn 键）</text>
+<text x="46" y="168" font-size="12" fill="#A32D2D">去抖 → E0F → 2109 = E0F&amp;&amp;D7B 激活 Fn 层</text>
+
+<rect x="470" y="124" width="410" height="66" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="486" y="148" font-size="13" font-weight="600" fill="#04342C">GPIO P0.6 → Left Ctrl</text>
+<text x="486" y="168" font-size="12" fill="#0F6E56">BT 注入 HID 修饰位 / 2.4G 伪键 0xDF→0xE0</text>
+
+<rect x="30" y="202" width="410" height="66" rx="10" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+<text x="46" y="226" font-size="13" font-weight="600" fill="#791F1F">矩阵 r15c0（idx120 · 原 Left Ctrl）</text>
+<text x="46" y="246" font-size="12" fill="#A32D2D">键码表 = 0xE0 → 发 Left Ctrl</text>
+
+<rect x="470" y="202" width="410" height="66" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="486" y="226" font-size="13" font-weight="600" fill="#04342C">矩阵 r15c0（idx120）→ Fn</text>
+<text x="486" y="246" font-size="12" fill="#0F6E56">键码表 0xE0→0x00 + 扫描钩子写 E0F（本身不发码）</text>
+</g>
+
+<text x="30" y="310" font-size="12" fill="#5F5E5A">注：Fn 层键码表 0x2CC78 未改 → 按住 Fn 再按 r12c4/r15c0 仍走 Fn 层原映射</text>
+</svg>
+
+<h2>二、核心机制：E0F 整体换源（只改 1 个字面量池槽）</h2>
+
+<p>固件里 Fn 状态变量 <code>E0F @0x20001E0F</code> 被 <strong>6 个</strong> Thumb 字面量池槽引用。v6 只改其中 <strong>1 个</strong>，其余 5 个「读 E0F」的池槽原样保留 —— 于是 14 处读取自动跟随矩阵 Fn。</p>
+
+<svg class="diagram" viewBox="0 0 900 300" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>E0F 换源机制</title>
+<desc>6 个 E0F 池槽中只改去抖状态机那一个</desc>
+<defs>
+<marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<text x="30" y="26" font-size="13" font-weight="600" fill="#26215C">P0.6 去抖状态机 FUN_0001b75c</text>
+<rect x="30" y="36" width="230" height="58" rx="10" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="46" y="60" font-size="12.5" font-weight="600" fill="#4A1B0C">池槽 0x1B8A0</text>
+<text x="46" y="78" font-size="11.5" fill="#993C1D">0x20001E0F → 0x20004800（E0F2）</text>
+
+<text x="30" y="126" font-size="13" font-weight="600" fill="#26215C">其余 5 个「读 E0F」池槽（原样不动）</text>
+<rect x="30" y="136" width="230" height="86" rx="10" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="46" y="158" font-size="11.5" fill="#3C3489">0x1B714 · 0x1E868 · 0x1ECD0</text>
+<text x="46" y="176" font-size="11.5" fill="#3C3489">0x020B4C · 0x020FD4</text>
+<text x="46" y="194" font-size="11.5" fill="#3C3489">仍指向 0x20001E0F</text>
+
+<text x="320" y="60" font-size="13" font-weight="600" fill="#26215C">E0F 语义</text>
+<rect x="320" y="70" width="270" height="52" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="336" y="90" font-size="12.5" font-weight="600" fill="#042C53">由「P0.6 去抖按下」</text>
+<text x="336" y="108" font-size="12.5" fill="#185FA5">改为「矩阵 r15c0 按下」</text>
+
+<text x="320" y="156" font-size="13" font-weight="600" fill="#26215C">Fn 层激活</text>
+<rect x="320" y="166" width="270" height="52" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="336" y="186" font-size="12.5" font-weight="600" fill="#04342C">2109 = E0F &amp;&amp; D7B</text>
+<text x="336" y="204" font-size="12.5" fill="#0F6E56">自动变成「矩阵Fn &amp;&amp; 档位门控」</text>
+
+<text x="320" y="250" font-size="13" font-weight="600" fill="#26215C">P0.6 去抖</text>
+<rect x="320" y="260" width="270" height="36" rx="10" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="336" y="280" font-size="12.5" fill="#2C2C2A">照常写 E0F2，不再污染 E0F</text>
+</g>
+
+<line x1="260" y1="65" x2="316" y2="96" stroke="#993C1D" stroke-width="1.5" marker-end="url(#ar2)"/>
+<line x1="260" y1="179" x2="316" y2="96" stroke="#534AB7" stroke-width="1.5" marker-end="url(#ar2)"/>
+<line x1="455" y1="122" x2="455" y2="162" stroke="#185FA5" stroke-width="1.5" marker-end="url(#ar2)"/>
+<line x1="320" y1="278" x2="262" y2="278" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="4 3"/>
+</svg>
+
+<h2>三、执行链路（含关键机器码）</h2>
+
+<h3>3.1 蓝牙（BT）扫描行循环 —— r15c0 写 E0F</h3>
+
+<svg class="diagram" viewBox="0 0 900 330" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>BT 扫描行循环执行链路</title>
+<desc>HOOK_A → trampoline A 驱动 E0F</desc>
+<defs>
+<marker id="ar3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<rect x="30" y="30" width="250" height="72" rx="10" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="46" y="52" font-size="12.5" font-weight="600" fill="#2C2C2A">HOOK_A @0x1E4E4（原 nop+ldr）</text>
+<text x="46" y="70" font-size="11.5" fill="#5F5E5A">r0 = 该行列位图 · r5 = 行号</text>
+<text x="46" y="88" font-size="11.5" fill="#5F5E5A">被替换为 bl #0x50000</text>
+
+<rect x="330" y="30" width="250" height="72" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="346" y="52" font-size="12.5" font-weight="600" fill="#042C53">Trampoline A @0x50000</text>
+<text x="346" y="70" font-size="11.5" fill="#185FA5">cmp r5,#0xf → 只处理 row15</text>
+<text x="346" y="88" font-size="11.5" fill="#185FA5">tst r0,#1 → 检测 col0（r15c0）</text>
+
+<rect x="630" y="30" width="240" height="72" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="646" y="52" font-size="12.5" font-weight="600" fill="#04342C">效果</text>
+<text x="646" y="70" font-size="11.5" fill="#0F6E56">命中 → E0F=1 + 清该行 bit0</text>
+<text x="646" y="88" font-size="11.5" fill="#0F6E56">未命中 → E0F=0</text>
+
+<rect x="330" y="130" width="250" height="120" rx="10" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="346" y="150" font-size="12.5" font-weight="600" fill="#2C2C2A">返回前恢复现场</text>
+<text x="346" y="170" font-size="11.5" fill="#5F5E5A">r1 = ROWPIN(0x2CBE0)</text>
+<text x="346" y="188" font-size="11.5" fill="#5F5E5A">→ 后续 ldrb r2,[r1,r5] 不受影响</text>
+<text x="346" y="206" font-size="11.5" fill="#5F5E5A">bx lr 返回扫描函数</text>
+<text x="346" y="224" font-size="11.5" fill="#5F5E5A">对调用者透明</text>
+</g>
+<line x1="280" y1="66" x2="326" y2="66" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ar3)"/>
+<line x1="580" y1="66" x2="626" y2="66" stroke="#185FA5" stroke-width="1.5" marker-end="url(#ar3)"/>
+</svg>
+
+<pre class="asm"><span class="a">0x50000</span>  <span class="b">0C 2D</span>        cmp   r5, #0xf          <span class="c">; 仅 row15 才处理</span>
+<span class="a">0x50002</span>  <span class="b">15 D1</span>        bne   #0x5002a          <span class="c">; 其它行 → .restore</span>
+<span class="a">0x50004</span>  <span class="b">10 F0 10 0F</span>  tst.w r0, #1           <span class="c">; col0（r15c0）按下？</span>
+<span class="a">0x50008</span>  <span class="b">0E D0</span>        beq   #0x50022          <span class="c">; 否 → .zero</span>
+<span class="a">0x5000A</span>  <span class="b">01 22</span>        movs  r2, #1
+<span class="a">0x5000C</span>  <span class="b">DF F8 20 10</span>  ldr.w r1, [pc, #0x20]   <span class="c">; r1 = E0F(0x20001E0F)</span>
+<span class="a">0x50010</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; E0F = 1（矩阵 Fn 按下）</span>
+<span class="a">0x50012</span>  <span class="b">07 A9</span>        add   r1, sp, #0x1c     <span class="c">; r1 = local_64[15]</span>
+<span class="a">0x50014</span>  <span class="b">51 F8 25 20</span>  ldr.w r2, [r1, r5, lsl #2]
+<span class="a">0x50018</span>  <span class="b">22 F0 01 02</span>  bic   r2, r2, #1         <span class="c">; 清 bit0 → r15c0 不发码</span>
+<span class="a">0x5001C</span>  <span class="b">41 F8 25 20</span>  str.w r2, [r1, r5, lsl #2]
+<span class="a">0x50020</span>  <span class="b">03 E0</span>        b     #0x5002a
+<span class="a">0x50022</span>  <span class="b">00 22</span>        movs  r2, #0            <span class="c">; .zero</span>
+<span class="a">0x50024</span>  <span class="b">DF F8 0C 10</span>  ldr.w r1, [pc, #0xc]
+<span class="a">0x50028</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; E0F = 0（松开）</span>
+<span class="a">0x5002A</span>  <span class="b">DF F8 0C 10</span>  ldr.w r1, [pc, #0xc]    <span class="c">; r1 = ROWPIN(0x2CBE0)</span>
+<span class="a">0x5002E</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.2 2.4G 扫描行循环 —— 同步写 E0F（含 r0 位图修正）</h3>
+
+<p>与 3.1 同义，但 2.4G 路径在钩子之后<strong>用寄存器 r0</strong>逐位测试行位图（<code>0x4126C: tst.w r0, ip</code>），故必须同时清 <code>r0</code> 的 bit0（只改 <code>local_84[row]</code> 无效）。末尾 <code>cmp r0,#0</code> 复原标志位（<code>0x4125E</code> 的 <code>beq</code> 依赖 <code>bics</code> 的 Z 位）。</p>
+
+<pre class="asm"><span class="a">0x50100</span>  <span class="b">0C 2C</span>        cmp   r4, #0xf          <span class="c">; 仅 row15</span>
+<span class="a">0x50104</span>  <span class="b">10 F0 10 0F</span>  tst.w r0, #1           <span class="c">; col0 按下？</span>
+<span class="a">0x5010C</span>  <span class="b">DF F8 28 10</span>  ldr.w r1, [pc, #0x28]   <span class="c">; r1 = E0F</span>
+<span class="a">0x50110</span>  <span class="b">0A 70</span>        strb  r2, [r1]          <span class="c">; E0F = 1</span>
+<span class="a">0x50112</span>  <span class="b">20 F0 01 00</span>  bic   r0, r0, #1         <span class="c">; ★清 r0 bit0（2.4G 逐位测试用 r0）</span>
+<span class="a">0x50116</span>  <span class="b">09 A9</span>        add   r1, sp, #0x24     <span class="c">; r1 = local_84[15]</span>
+<span class="a">0x50118</span>  <span class="b">51 F8 24 20</span>  ldr.w r2, [r1, r4, lsl #2]
+<span class="a">0x5011C</span>  <span class="b">22 F0 01 02</span>  bic   r2, r2, #1         <span class="c">; 清 local_84 的 bit0</span>
+<span class="a">0x50120</span>  <span class="b">41 F8 24 20</span>  str.w r2, [r1, r4, lsl #2]
+<span class="a">0x5012E</span>  <span class="b">1A F8 04 20</span>  ldrb.w r2, [sl, r4]     <span class="c">; 复原原指令</span>
+<span class="a">0x50132</span>  <span class="b">00 28</span>        cmp   r0, #0            <span class="c">; ★复原标志位（beq 依赖 Z）</span>
+<span class="a">0x50134</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.3 2.4G P0.6 判定 / 伪键注入 —— P0.6 发 Left Ctrl</h3>
+
+<svg class="diagram" viewBox="0 0 900 250" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>2.4G P0.6 注入链路</title>
+<desc>HOOK_C 把伪键 0xDF 改为 0xE0</desc>
+<defs>
+<marker id="ar4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<g font-family="-apple-system,'Microsoft YaHei',sans-serif">
+<rect x="30" y="40" width="260" height="80" rx="10" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="46" y="62" font-size="12.5" font-weight="600" fill="#2C2C2A">HOOK_C @0x411C6（18 字节）</text>
+<text x="46" y="82" font-size="11.5" fill="#5F5E5A">原：读 P0.IN bit6 → 写伪键 0xDF</text>
+<text x="46" y="100" font-size="11.5" fill="#5F5E5A">现：r7 = E0F + 写伪键 0xE0</text>
+
+<rect x="340" y="40" width="260" height="80" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="356" y="62" font-size="12.5" font-weight="600" fill="#042C53">Trampoline C @0x50200</text>
+<text x="356" y="82" font-size="11.5" fill="#185FA5">r7 = E0F（矩阵 Fn 保持标志）</text>
+<text x="356" y="100" font-size="11.5" fill="#185FA5">P0.6 按下 → local_98[0]=0xE0</text>
+
+<rect x="650" y="40" width="220" height="80" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="666" y="62" font-size="12.5" font-weight="600" fill="#04342C">效果</text>
+<text x="666" y="82" font-size="11.5" fill="#0F6E56">0xE0 进入键码数组</text>
+<text x="666" y="100" font-size="11.5" fill="#0F6E56">→ 修饰位 0 = Left Ctrl</text>
+</g>
+<line x1="290" y1="80" x2="336" y2="80" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ar4)"/>
+<line x1="600" y1="80" x2="646" y2="80" stroke="#185FA5" stroke-width="1.5" marker-end="url(#ar4)"/>
+<text x="30" y="150" font-size="12.5" font-weight="600" fill="#26215C">关键：r7 换源</text>
+<text x="30" y="172" font-size="11.5" fill="#5F5E5A">原 r7 由 P0.6 决定（Fn 按住）；v6 改 r7 = E0F（矩阵 Fn），与 P0.6 无关。伪键 0xDF→0xE0，通路已被 KEYTBL_G[120] 原值验证。</text>
+</svg>
+
+<pre class="asm"><span class="a">0x50200</span>  <span class="b">DF F8 20 00</span>  ldr.w r0, [pc, #0x20]   <span class="c">; r0 = &amp;E0F</span>
+<span class="a">0x50204</span>  <span class="b">00 78</span>        ldrb  r0, [r0]          <span class="c">; r0 = E0F</span>
+<span class="a">0x50206</span>  <span class="b">07 46</span>        mov   r7, r0            <span class="c">; r7 = 矩阵 Fn</span>
+<span class="a">0x50208</span>  <span class="b">4F F0 00 40</span>  mov.w r0, #0x50000000
+<span class="a">0x5020C</span>  <span class="b">D0 F8 10 05</span>  ldr.w r0, [r0, #0x510]   <span class="c">; r0 = P0.IN</span>
+<span class="a">0x50210</span>  <span class="b">40 07</span>        lsls  r0, r0, #0x19     <span class="c">; bit6 → bit31</span>
+<span class="a">0x50212</span>  <span class="b">04 D5</span>        bpl   #0x50218          <span class="c">; P0.6 低 → 按下</span>
+<span class="a">0x50214</span>  <span class="b">00 25</span>        movs  r5, #0
+<span class="a">0x50216</span>  <span class="b">03 E0</span>        b     #0x50220
+<span class="a">0x50218</span>  <span class="b">01 25</span>        movs  r5, #1            <span class="c">; uVar11 = 1</span>
+<span class="a">0x5021A</span>  <span class="b">E0 21</span>        movs  r1, #0xe0         <span class="c">; 伪 Left Ctrl 键</span>
+<span class="a">0x5021C</span>  <span class="b">8D F8 10 10</span>  strb.w r1, [sp, #0x10]   <span class="c">; local_98[0] = 0xE0</span>
+<span class="a">0x50220</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.4 蓝牙 HID 组装修饰字节 —— P0.6 注入 Left Ctrl</h3>
+
+<pre class="asm"><span class="a">0x50400</span>  <span class="b">00 23</span>        movs  r3, #0
+<span class="a">0x50402</span>  <span class="b">0B 70</span>        strb  r3, [r1]          <span class="c">; *param_1 = 0</span>
+<span class="a">0x50404</span>  <span class="b">4F F0 00 40</span>  mov.w r0, #0x50000000
+<span class="a">0x50408</span>  <span class="b">D0 F8 10 05</span>  ldr.w r0, [r0, #0x510]   <span class="c">; r0 = P0.IN</span>
+<span class="a">0x5040C</span>  <span class="b">40 07</span>        lsls  r0, r0, #0x19     <span class="c">; bit6 → bit31</span>
+<span class="a">0x5040E</span>  <span class="b">04 D5</span>        bpl   #0x50412          <span class="c">; P0.6 低 → 按下</span>
+<span class="a">0x50410</span>  <span class="b">01 E0</span>        b     #0x50416
+<span class="a">0x50412</span>  <span class="b">01 23</span>        movs  r3, #1
+<span class="a">0x50414</span>  <span class="b">0B 70</span>        strb  r3, [r1]          <span class="c">; *param_1 = 1（Left Ctrl 位0）</span>
+<span class="a">0x50416</span>  <span class="b">00 23</span>        movs  r3, #0            <span class="c">; 返回时 r3=0（后续 strb r3,[r1,#7] 依赖）</span>
+<span class="a">0x50418</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h3>3.5 蓝牙扫描内联 P0.IN 读 —— 判定源换为 E0F</h3>
+
+<p>原始 22 字节读 <code>P0.IN</code> 判定「P0.6 松开」，v6 改为读 <code>E0F</code>。返回 <code>r2=1</code> 表示「Fn 未按住」（走普通键分支，与原始 <code>cbnz</code> 语义等价），<code>r2=0</code> 表示「Fn 按住」。</p>
+
+<pre class="asm"><span class="a">0x50300</span>  <span class="b">DF F8 10 20</span>  ldr.w r2, [pc, #0x10]   <span class="c">; r2 = &amp;E0F</span>
+<span class="a">0x50304</span>  <span class="b">12 78</span>        ldrb  r2, [r2]          <span class="c">; r2 = E0F</span>
+<span class="a">0x50306</span>  <span class="b">00 2A</span>        cmp   r2, #0
+<span class="a">0x50308</span>  <span class="b">01 D1</span>        bne   #0x5030e          <span class="c">; 按住 → r2=0</span>
+<span class="a">0x5030A</span>  <span class="b">01 22</span>        movs  r2, #1            <span class="c">; 未按住 → r2=1</span>
+<span class="a">0x5030C</span>  <span class="b">70 47</span>        bx    lr
+<span class="a">0x5030E</span>  <span class="b">00 22</span>        movs  r2, #0
+<span class="a">0x50310</span>  <span class="b">70 47</span>        bx    lr</pre>
+
+<h2>四、补丁清单与改动范围</h2>
+
+<table>
+<thead><tr><th>类别</th><th>地址</th><th>原始</th><th>补丁后</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td>键码表 BT[100]</td><td>0x2CC54</td><td>0x00</td><td>0xE0</td><td>r12c4 → Left Ctrl</td></tr>
+<tr><td>键码表 BT[120]</td><td>0x2CC68</td><td>0xE0</td><td>0x00</td><td>r15c0 → 不发码（当 Fn）</td></tr>
+<tr><td>键码表 G[100]</td><td>0x4A75E</td><td>0x00</td><td>0xE0</td><td>r12c4 → Left Ctrl</td></tr>
+<tr><td>键码表 G[120]</td><td>0x4A772</td><td>0xE0</td><td>0x00</td><td>r15c0 → 不发码（当 Fn）</td></tr>
+<tr><td>行掩码 BT r12</td><td>0x1E84C</td><td>0xE7</td><td>0xF7</td><td>放行 col4</td></tr>
+<tr><td>行掩码 G r12</td><td>0x4A6B2</td><td>0x1C</td><td>0x0C</td><td>放行 col4</td></tr>
+<tr><td>去抖池槽</td><td>0x1B8A0</td><td>0x20001E0F</td><td>0x20004800</td><td>E0F → E0F2（解耦）</td></tr>
+<tr><td>HOOK A</td><td>0x1E4E4</td><td>nop+ldr</td><td>bl 0x50000</td><td>BT 扫描写 E0F</td></tr>
+<tr><td>HOOK B</td><td>0x41252</td><td>ldrb.w</td><td>bl 0x50100</td><td>2.4G 扫描写 E0F</td></tr>
+<tr><td>HOOK C</td><td>0x411C6</td><td>18 字节</td><td>bl 0x50200</td><td>2.4G 伪键 0xE0</td></tr>
+<tr><td>HOOK D</td><td>0x1EB74</td><td>22 字节</td><td>bl 0x50300</td><td>BT 判定换 E0F</td></tr>
+<tr><td>HOOK E</td><td>0x23A76</td><td>movs+strb</td><td>bl 0x50400</td><td>BT 注入修饰位</td></tr>
+</tbody>
+</table>
+
+<div class="callout">
+<p><strong>改动范围：</strong>274 字节 / 18 区域，全部落在 0x50000–0x60000 擦除空洞（静态不可达），向量表 Reset_Handler（0x00000A81）不变。独立验证脚本 <code>verify_v6.py</code> 共 <strong>87 项检查全部通过</strong>。</p>
+</div>
+
+<h2>五、已知边界（设计取舍，非缺陷）</h2>
+<ul>
+<li><strong>r12c4 的 Left Ctrl 仅非 Fn 层生效</strong>：Fn 层键码表 0x2CC78 未改，按住 Fn 再按 r12c4 走 Fn 层原映射（0x1C），不是 Left Ctrl。</li>
+<li><strong>P0.6 的 Ctrl 注入用原始电平</strong>：不经过去抖状态机（直接读 P0.IN bit6），与原始固件在 2.4G / BT 内联处的用法一致。</li>
+</ul>
+
+</div>
+</body>
+</html>

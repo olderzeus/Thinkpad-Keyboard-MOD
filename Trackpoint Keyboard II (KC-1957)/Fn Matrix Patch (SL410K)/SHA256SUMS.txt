@@ -1,0 +1,18 @@
+# v5.1 Fn 键矩阵化改造 —— 文件校验（SHA-256）
+#
+# 本目录不随仓库分发固件二进制（原因见顶层 README「为什么不提供 .bin」）。
+# 下列 *.bin 哈希为「参考机」产物指纹：每台设备 Dump 出的固件本就不同，
+# 因此在不同设备上生成的产物哈希必然不同 —— 这属正常，不能作为验收依据。
+# 同一台设备重复操作时哈希应一致；判断补丁是否正确请以工具的前置检查与结构性检查为准。
+
+214ceb0eda0cc095dce3c3241127b1bae783e9e05df17cb268d880c1ab75e75e  KC-1957_Fn矩阵化改造说明.html
+849c8dc45e3d4412aa4c840a95702ece4387abe4666e613f5850358a86dc20db  KC-1957_Fn矩阵化改造说明.md
+1a2c189dc549ae47b76175ae7eb58807934755a53e425235951cda826a528870  KC-1957_Fn矩阵化改造说明_执行原理_v5.html
+8f487b8285bb9ad536a47935fb251c2ce63e8568ed1efb40430185e0dfeeaca4  README.md
+c0ab28184c8dbfc338e4b002d92a2b2b93387b830e742c420dd7a550665a2ae5  fn_matrix_patch3.py
+fd4558bce60e4e245a2402b003db37f9e1eedeb2358f454b999fa1fd0e7e9baa  thumbsim.py
+cdf12d4ff72d56d3f3f1e98a47fb03ce1f0f9626d2b1f185ad4ae90b6fa4078f  verify_v51.py
+
+# 未随仓库分发的固件（自行 Dump 原始固件后按本目录 README 生成）：
+d91ecaeb1c6e55dc03ae567a6bfe3ba7b50a70cba9e47d4b4380320993e70eef  KC-1957_88_fn7_v51.bin
+57df656c947b196f085ff448ff39ea2ed21fe79fb9532a4ee7c850a059da66f7  KC-1957_88_orig.bin

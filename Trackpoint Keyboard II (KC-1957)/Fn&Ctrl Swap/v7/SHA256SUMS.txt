@@ -1,0 +1,17 @@
+# v7 左Ctrl<->Fn 完全互换 + P0.6 去抖 —— 文件校验（SHA-256）
+#
+# 本目录不随仓库分发固件二进制（原因见顶层 README「为什么不提供 .bin」）。
+# 下列 *.bin 哈希为「参考机」产物指纹：每台设备 Dump 出的固件本就不同，
+# 因此在不同设备上生成的产物哈希必然不同 —— 这属正常，不能作为验收依据。
+# 同一台设备重复操作时哈希应一致；判断补丁是否正确请以工具的前置检查与结构性检查为准。
+
+a5e320248b74ec0d144b7b5063bb5fdc93f813fb7d91fab19074e4f5388340c2  KC-1957_左Ctrl与Fn互换改造说明_P06去抖_v7.md
+defb54167d9e421f5b8d7a087a154f810f0858fb0e252fb5348c6f4fc5f38b99  KC-1957_左Ctrl与Fn互换改造说明_执行原理_v7.html
+004a99bf46e15b2f5c4c6ea292138ab5661b07008a72a3f85e434c2495d39b1c  README.md
+122adfee31e9e81b0d219f3ec3f789140ef61473530cdfbdea71f104f165df04  fn_swap_debounce_patch.py
+fd4558bce60e4e245a2402b003db37f9e1eedeb2358f454b999fa1fd0e7e9baa  thumbsim.py
+86a72944b6a46a96b4bd121f8a33d174a261ab224297258503f2440c2417f3d9  verify_v7.py
+
+# 未随仓库分发的固件（自行 Dump 原始固件后按本目录 README 生成）：
+3f68e61b6f24c8f763958de9fe1fa88574a12b583aa3febdecaa1094dc97cdc1  KC-1957_88_v7.bin
+57df656c947b196f085ff448ff39ea2ed21fe79fb9532a4ee7c850a059da66f7  KC-1957_88_orig.bin
